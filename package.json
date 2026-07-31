@@ -1,0 +1,42 @@
+{
+  "name": "pyfoma-js",
+  "version": "0.1.0",
+  "description": "Standalone JavaScript port of Pyfoma",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dhdaines/pyfoma-js.git"
+  },
+  "keywords": [
+    "wfst",
+    "nlp",
+    "speech"
+  ],
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/dhdaines/pyfoma-js/issues"
+  },
+  "homepage": "https://github.com/dhdaines/pyfoma-js#readme",
+  "devDependencies": {
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "@types/node": "^26.1.2"
+  },
+  "dependencies": {
+  }
+}

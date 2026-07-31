@@ -1,0 +1,4 @@
+- Mans Hulden <mans.hulden@colorado.edu>
+- Michael P. Ginn <michaelginn00@gmail.com>
+- Miikka Silfverberg <mpsilfve@iki.fi>
+- David Huggins-Daines <dhd@ecolingui.ca>
