@@ -1,3 +1,4 @@
+// -*- js-indent-level: 2 -*-
 /*
   PyFoma → JavaScript (port)
   -------------------------
@@ -13,48 +14,52 @@
 // ------------------------
 
 const LABEL_SEP = "\u0001";
+type labelArray = string[];
 
-function labelKey(lbl) {
+export function labelKey(lbl: labelArray): string {
   return lbl.join(LABEL_SEP);
 }
 
-function keyToLabel(k) {
+export function keyToLabel(k: string): labelArray {
   return k === "" ? [""] : k.split(LABEL_SEP);
 }
 
-function setUnion(a, b) {
+function setUnion<T>(a: Set<T>, b: Set<T>): Set<T> {
   const out = new Set(a);
   for (const x of b) out.add(x);
   return out;
 }
 
-function setIntersection(a, b) {
-  const out = new Set();
+function setIntersection<T>(a: Set<T>, b: Set<T>): Set<T> {
+  const out = new Set<T>();
   for (const x of a) if (b.has(x)) out.add(x);
   return out;
 }
 
-function setDifference(a, b) {
-  const out = new Set();
+function setDifference<T>(a: Set<T>, b: Set<T>): Set<T> {
+  const out = new Set<T>();
   for (const x of a) if (!b.has(x)) out.add(x);
   return out;
 }
 
-function* cartesian(a, b) {
+// @ts-ignore
+function* cartesian<T, U>(a: Iterable<T>, b: Iterable<U>): Generator<[T, U]> {
   for (const x of a) for (const y of b) yield [x, y];
 }
 
 // A tiny counter helper
 class Counter {
+  v: number;
   constructor(start = 0) { this.v = start; }
-  next() { return this.v++; }
+  next(): number { return this.v++; }
 }
 
 // Min-heap priority queue
-class MinHeap {
+export class MinHeap<T> {
+  data: [number, T][];
   constructor() { this.data = []; }
-  get size() { return this.data.length; }
-  push(item) {
+  get size(): number { return this.data.length; }
+  push(item: [number, T]): void {
     const a = this.data;
     a.push(item);
     let i = a.length - 1;
@@ -65,11 +70,12 @@ class MinHeap {
       i = p;
     }
   }
-  pop() {
+  pop(): [number, T] | undefined {
     const a = this.data;
-    if (!a.length) return undefined;
+    if (a.length == 0)
+      return undefined;
     const top = a[0];
-    const last = a.pop();
+    const last: [number,  T] = a.pop()!;
     if (a.length) {
       a[0] = last;
       let i = 0;
