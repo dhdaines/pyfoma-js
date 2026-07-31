@@ -1,6 +1,6 @@
 // -*- js-indent-level: 2 -*-
 import { describe, expect, test } from 'vitest'
-import { MinHeap, PartitionRefinement, Transition, State, labelKey } from './pyfoma.js';
+import { RegexParse, MinHeap, PartitionRefinement, Transition, State, labelKey } from './pyfoma.js';
 
 describe('MinHeap', () => {
   test('initializion of an empty heap', () => {
@@ -280,7 +280,6 @@ describe('PartitionRefinement', () => {
 
     const R = new Set([1, 2]);
     const result = pr.refine(R);
-    console.log(result);
 
     expect(result.length).toBe(1);
     const [AS, A_minus_AS] = result[0];
@@ -382,5 +381,68 @@ describe('PartitionRefinement', () => {
     expect(pr.partition.get('a')).not.toBe(pr.partition.get('b'));
     expect(pr.partition.get('d')).not.toBe(pr.partition.get('e'));
     expect(pr.partition.get('d')).not.toBe(pr.partition.get('b'));
+  });
+});
+
+describe("RegexParse", () => {
+  test("parse a simple regex", () => {
+    const parser = new RegexParse("(cat):(dog)", {}, []);
+    const att = parser.compiled.toATT();
+    expect(att.trim()).toEqual(`0\t1\tc\td\t0
+1\t2\ta\to\t0
+2\t3\tt\tg\t0
+3\t0`);
+  });
+
+  test('should throw SyntaxError for dangling escape', () => {
+    expect(() => new RegexParse('\\', {}, [])).toThrow("Dangling escape");
+  });
+
+  test('should throw SyntaxError when function is not followed by ()', () => {
+    expect(() => new RegexParse('$^invert', {}, [])).toThrow("Function must be followed by ()");
+  });
+
+  test('should throw SyntaxError for bad variable', () => {
+    expect(
+      () => new RegexParse('$123invalidName', {}, [])
+    ).toThrow("Defined FST \"123invalidName\" not found.");
+  });
+
+  test('should throw SyntaxError for bad weight', () => {
+    expect(
+      () => new RegexParse('a<invalid>', {}, [])
+    ).toThrow("Bad weight");
+  });
+
+  test('should throw SyntaxError for bad range', () => {
+    expect(
+      () => new RegexParse('a{invalid}', {}, [])
+    ).toThrow("Bad range");
+  });
+
+  test('should throw SyntaxError for too many closing parentheses', () => {
+    expect(
+      () => new RegexParse('a)', {}, [])
+    ).toThrow("Too many closing parentheses");
+  });
+
+  test('should throw SyntaxError for missing closing parenthesis', () => {
+    expect(
+      () => new RegexParse('(a', {}, [])
+    ).toThrow("Missing closing parenthesis");
+  });
+
+  test('should throw SyntaxError for mismatched range in char class', () => {
+     // Try a range where start > end.
+    expect(
+      () => new RegexParse('[z-a]', {}, [])
+    ).toThrow("End must be larger than start");
+  });
+
+  test('should throw SyntaxError for undefined range parameters', () => {
+     // Test ranges like {m,n} where m > n
+    expect(
+      () => new RegexParse('a{3,1}', {}, []).compiled
+    ).toThrow("n must be greater than m in {m,n}");
   });
 });

@@ -296,8 +296,10 @@ export class PartitionRefinement<T> {
 
 type FunctionObject = {name: string, fn: Function};
 type Token = [string, any, number, number];
+type DefinedMapping = {[name: string]: FST};
+type FunctionMapping = {[name: string]: Function};
 
-class RegexParse {
+export class RegexParse {
   static shortops: {[op: string]: string} = {
     "|": "UNION",
     "-": "MINUS",
@@ -356,8 +358,8 @@ class RegexParse {
   static unarypre = new Set(["COMPLEMENT"]);
 
   expression: string;
-  defined: {[name: string]: FST};
-  functions: {[name: string]: Function};
+  defined: DefinedMapping;
+  functions: FunctionMapping;
   tokenized: Token[];
   parsed: Token[];
   compiled: FST;
@@ -416,15 +418,8 @@ class RegexParse {
     const marks = cln.map((c, i) => c === "-" && !escaped.has(i) && i !== 0 && i !== cln.length - 1);
     const ranges: [number, number][] = [];
     for (let i = 0; i < marks.length; i++) {
-      if (marks[i]) {
-        const start = cln[i - 1].codePointAt(0);
-        if (start === undefined)
-          throw new SyntaxError(`undefined code point ${cln[i-1]} in ${charclass}`);
-        const end = cln[i + 1].codePointAt(0);
-        if (end === undefined)
-          throw new SyntaxError(`undefined code point ${cln[i+1]} in ${charclass}`);
-        ranges.push([start, end]);
-      }
+      // FIXME: This is broken for surrogate pairs
+      if (marks[i]) ranges.push([cln[i - 1].codePointAt(0)!, cln[i + 1].codePointAt(0)!]);
     }
 
     // singles are those not participating in ranges
@@ -438,9 +433,8 @@ class RegexParse {
     for (let i = 0; i < singles.length; i++) {
       if (!singles[i]) {
         const cp = cln[i].codePointAt(0);
-        if (cp === undefined)
-          throw new SyntaxError(`undefined code point ${cln[i]} in ${charclass}`);
-        ranges.push([cp, cp]);
+        // FIXME: This is broken for surrogate pairs
+        ranges.push([cp!, cp!]);
       }
     }
 
@@ -835,9 +829,9 @@ export class FST {
   // param names to the argument FSTs.
   // ----------------------------------------------------------------------
 
-  static _macros = new Map(); // name -> { params: string[], body: string }
+  static _macros: Map<string, { params: string[], body: string }> = new Map();
 
-  static defineMacro(name, params, body) {
+  static defineMacro(name: string, params: string[], body: string): void {
     if (!name || typeof name !== 'string') throw new Error('Macro name must be a string.');
     const ps = Array.isArray(params) ? params.map((p) => String(p).trim()).filter(Boolean) : [];
     let b = String(body ?? '').trim();
@@ -854,7 +848,7 @@ export class FST {
     FST._macros.clear();
   }
 
-  static _macroFunctions(defined, functions) {
+  static _macroFunctions(defined: DefinedMapping, functions: Array<Function | FunctionObject>): FunctionObject[] {
     // Convert macro registry to function objects understood by RegexParse.
     // Custom functions passed by the caller should override macros.
     const overridden = new Set();
@@ -867,8 +861,8 @@ export class FST {
       if (overridden.has(name)) continue;
       out.push({
         name,
-        fn: (...args) => {
-          const kwargs = args.length ? args[args.length - 1] : {};
+        fn: (...args: any) => {
+          // const kwargs = args.length ? args[args.length - 1] : {};
           const realArgs = args.length ? args.slice(0, -1) : [];
           if (realArgs.length !== spec.params.length) {
             throw new SyntaxError(`Macro "${name}" expects ${spec.params.length} args, got ${realArgs.length}.`);
@@ -883,7 +877,7 @@ export class FST {
     return out;
   }
 
-  static characterRanges(ranges, complement = false) {
+  static characterRanges(ranges: [number, number][], complement = false) {
     const newfst = new FST();
     const second = new State();
     newfst.states.add(second);
@@ -908,7 +902,7 @@ export class FST {
     return newfst;
   }
 
-  static regex(regExp, defined = {}, functions = new Set()) {
+  static regex(regExp: string, defined = {}, functions = new Set()) {
     // Always include macros (as functions) unless the caller overrides them.
     const fnSet = new Set(functions);
     for (const mf of FST._macroFunctions(defined, fnSet)) fnSet.add(mf);
