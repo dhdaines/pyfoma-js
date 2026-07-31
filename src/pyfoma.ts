@@ -94,23 +94,33 @@ export class MinHeap<T> {
   }
 }
 
-function floatInf() { return Number.POSITIVE_INFINITY; }
+function floatInf(): number { return Number.POSITIVE_INFINITY; }
 
 // ------------------------
 // Core data structures
 // ------------------------
 
 export class Transition {
-  constructor(targetstate, label, weight) {
+  targetstate: State;
+  label: labelArray;
+  weight: number;
+  constructor(targetstate: State, label: labelArray, weight: number) {
     this.targetstate = targetstate;
-    this.label = label;       // array of strings
-    this.weight = weight;     // number
+    this.label = label;
+    this.weight = weight;
   }
 }
 
 export class State {
-  constructor({ finalweight = floatInf(), name = null } = {}) {
-    this.transitions = new Map(); // key: labelKey -> {label:Array, set:Set<Transition>}
+  transitions: Map<string, {label: labelArray, set: Set<Transition>}>;
+  _transitionsin: Map<string, Set<[labelArray, Transition]>> | null;
+  _transitionsout: Map<string, Set<[labelArray, Transition]>> | null;
+  finalweight: number;
+  name: string | null;
+  constructor({ finalweight, name }:
+              {finalweight: number, name: string | null}
+              = {finalweight: floatInf(), name:null}) {
+    this.transitions = new Map();
     this._transitionsin = null;
     this._transitionsout = null;
     this.finalweight = finalweight;
@@ -150,14 +160,15 @@ export class State {
     return m;
   }
 
-  renameLabel(originalLabel, newLabel) {
+  renameLabel(originalLabel: labelArray, newLabel: labelArray): void {
     const ok = labelKey(originalLabel);
-    const nk = labelKey(newLabel);
     const entry = this.transitions.get(ok);
     if (!entry) return;
+    const nk = labelKey(newLabel);
     for (const t of entry.set) t.label = newLabel;
     if (!this.transitions.has(nk)) this.transitions.set(nk, { label: newLabel, set: new Set() });
-    const target = this.transitions.get(nk).set;
+    const target = this.transitions.get(nk)!.set;
+    if (!target) return;
     for (const t of entry.set) target.add(t);
     this.transitions.delete(ok);
     // Deduplicate merged label bucket
@@ -166,11 +177,11 @@ export class State {
       const prev = dedup.get(t.targetstate);
       if (!prev || t.weight < prev.weight) dedup.set(t.targetstate, t);
     }
-    this.transitions.get(nk).set = new Set(dedup.values());
+    this.transitions.get(nk)!.set = new Set(dedup.values());
     this._invalidateIndexes();
   }
 
-  removeTransitionsToTargets(targets) {
+  removeTransitionsToTargets(targets: Set<State>): void {
     const newMap = new Map();
     for (const [k, { label, set }] of this.transitions.entries()) {
       const kept = new Set();
@@ -180,10 +191,11 @@ export class State {
     this.transitions = newMap;
     this._invalidateIndexes();
   }
-  addTransition(other, label, weight) {
+
+  addTransition(other: State, label: labelArray, weight: number): void {
     const k = labelKey(label);
     if (!this.transitions.has(k)) this.transitions.set(k, { label, set: new Set() });
-    const entry = this.transitions.get(k);
+    const entry = this.transitions.get(k)!;
 
     // Deduplicate parallel arcs with identical label and target: keep cheapest weight.
     for (const t of entry.set) {
@@ -198,22 +210,22 @@ export class State {
     this._invalidateIndexes();
   }
 
-  *allTransitions() {
+  *allTransitions(): Generator<[labelArray, Transition]> {
     for (const { label, set } of this.transitions.values()) {
       for (const t of set) yield [label, t];
     }
   }
 
-  allTargets() {
-    const out = new Set();
+  allTargets(): Set<State> {
+    const out = new Set<State>();
     for (const { set } of this.transitions.values()) for (const t of set) out.add(t.targetstate);
     return out;
   }
 
-  allEpsilonTargetsCheapest() {
-    const targets = new Map(); // state -> cheapest
-    for (const { label, set } of this.transitions.values()) {
-      const isEps = label.every((s) => s.length === 0);
+  allEpsilonTargetsCheapest(): Map<State, number> {
+    const targets = new Map();
+    for (const [k, { set }] of this.transitions.entries()) {
+      const isEps = (k === "");
       if (!isEps) continue;
       for (const t of set) {
         const prev = targets.has(t.targetstate) ? targets.get(t.targetstate) : floatInf();
@@ -223,7 +235,7 @@ export class State {
     return targets;
   }
 
-  allTargetsCheapest() {
+  allTargetsCheapest(): Map<State, number> {
     const targets = new Map();
     for (const { set } of this.transitions.values()) {
       for (const t of set) {
@@ -239,25 +251,27 @@ export class State {
 // Partition refinement
 // ------------------------
 
-class PartitionRefinement {
-  constructor(S /* Set<Set<any>> */) {
-    this.sets = new Map();      // id -> Set
-    this.partition = new Map(); // elem -> Set
+export class PartitionRefinement<T> {
+  sets: Map<Set<T>, Set<T>>;
+  partition: Map<T, Set<T>>;
+  constructor(S: Set<Set<T>>) {
+    this.sets = new Map();
+    this.partition = new Map();
     for (const s of S) {
       this.sets.set(s, s);
       for (const x of s) this.partition.set(x, s);
     }
   }
 
-  refine(S /* Set<any> */) {
-    const hit = new Map(); // Set -> Set<elem>
+  refine(S: Set<T>): [Set<T>, Set<T>][] {
+    const hit = new Map();
     for (const x of S) {
       if (!this.partition.has(x)) continue;
       const Ax = this.partition.get(x);
       if (!hit.has(Ax)) hit.set(Ax, new Set());
       hit.get(Ax).add(x);
     }
-    const output = [];
+    const output: [Set<T>, Set<T>][] = [];
     for (const [A, AS] of hit.entries()) {
       if (AS.size === A.size) continue;
       // Create new set AS; keep A as A- AS
@@ -269,8 +283,8 @@ class PartitionRefinement {
     return output;
   }
 
-  asTuples() {
-    const out = new Set();
+  asTuples(): Set<T[]> {
+    const out: Set<T[]> = new Set();
     for (const s of this.sets.values()) out.add(Array.from(s));
     return out;
   }
@@ -280,8 +294,11 @@ class PartitionRefinement {
 // Regex compiler (shunting-yard + Thompson-style construction)
 // ------------------------------------------------------------------------
 
+type FunctionObject = {name: string, fn: Function};
+type Token = [string, any, number, number];
+
 class RegexParse {
-  static shortops = {
+  static shortops: {[op: string]: string} = {
     "|": "UNION",
     "-": "MINUS",
     "&": "INTERSECTION",
@@ -299,20 +316,20 @@ class RegexParse {
     "_": "PAIRUP",
   };
 
-  static builtins = {
-    reverse: (x) => x.copyMod().reverse(),
-    invert: (x) => x.copyMod().invert(),
-    minimize: (x) => x.copyMod().minimize(),
-    determinize: (x) => x.copyMod().determinize(),
-    ignore: (x, y) => x.copyMod().ignore(y),
-    rewrite: (...args) => args[0].copyMod().rewrite(...args.slice(1)),
-    restrict: (x, ...args) => x.copyMod().contextRestrict(...args),
-    project: (x, kwargs = {}) => x.copyMod().project(parseInt(kwargs.dim ?? "-1", 10)),
-    input: (x) => x.copyMod().project(0),
-    output: (x) => x.copyMod().project(-1),
+  static builtins: {[name: string]: Function} = {
+    reverse: (x: FST) => x.copyMod().reverse(),
+    invert: (x: FST) => x.copyMod().invert(),
+    minimize: (x: FST) => x.copyMod().minimize(),
+    determinize: (x: FST) => x.copyMod().determinize(),
+    ignore: (x: FST, y: FST) => x.copyMod().ignore(y),
+    rewrite: (...args: FST[]) => args[0].copyMod().rewrite(...args.slice(1)),
+    restrict: (x: FST, ...args: FST[]) => x.copyMod().contextRestrict(...args),
+    project: (x: FST, kwargs: {[key: string]: any} = {}) => x.copyMod().project(parseInt(kwargs.dim ?? "-1", 10)),
+    input: (x: FST) => x.copyMod().project(0),
+    output: (x: FST) => x.copyMod().project(-1),
   };
 
-  static precedence = {
+  static precedence: {[op: string]: number} = {
     FUNC: 11,
     COMMA: 1,
     PARAM: 1,
@@ -338,7 +355,14 @@ class RegexParse {
   static unarypost = new Set(["STAR", "PLUS", "WEIGHT", "OPTIONAL", "RANGE"]);
   static unarypre = new Set(["COMPLEMENT"]);
 
-  constructor(regExp, defined, functions) {
+  expression: string;
+  defined: {[name: string]: FST};
+  functions: {[name: string]: Function};
+  tokenized: Token[];
+  parsed: Token[];
+  compiled: FST;
+
+  constructor(regExp: string, defined: {[name: string]: FST}, functions: Array<Function | FunctionObject>) {
     this.defined = defined;
     this.functions = {};
     // Custom functions are passed in as an iterable. We accept either:
@@ -358,15 +382,18 @@ class RegexParse {
     this.compiled = this.compile();
   }
 
-  _errorReport(ErrorType, message, lineNum, column) {
+  _errorReport(ErrorType: ErrorConstructor, message: string, lineNum: number, column: number): never {
     const e = new ErrorType(message);
+    // @ts-ignore
     e.lineNum = lineNum;
+    // @ts-ignore
     e.column = column;
+    // @ts-ignore
     e.expression = this.expression;
     throw e;
   }
 
-  characterClassParse(charclass) {
+  characterClassParse(charclass: string): [[number, number][], boolean] {
     let negated = false;
     if (charclass.startsWith("^")) {
       negated = true;
@@ -387,9 +414,17 @@ class RegexParse {
     }
 
     const marks = cln.map((c, i) => c === "-" && !escaped.has(i) && i !== 0 && i !== cln.length - 1);
-    const ranges = [];
+    const ranges: [number, number][] = [];
     for (let i = 0; i < marks.length; i++) {
-      if (marks[i]) ranges.push([cln[i - 1].codePointAt(0), cln[i + 1].codePointAt(0)]);
+      if (marks[i]) {
+        const start = cln[i - 1].codePointAt(0);
+        if (start === undefined)
+          throw new SyntaxError(`undefined code point ${cln[i-1]} in ${charclass}`);
+        const end = cln[i + 1].codePointAt(0);
+        if (end === undefined)
+          throw new SyntaxError(`undefined code point ${cln[i+1]} in ${charclass}`);
+        ranges.push([start, end]);
+      }
     }
 
     // singles are those not participating in ranges
@@ -403,6 +438,8 @@ class RegexParse {
     for (let i = 0; i < singles.length; i++) {
       if (!singles[i]) {
         const cp = cln[i].codePointAt(0);
+        if (cp === undefined)
+          throw new SyntaxError(`undefined code point ${cln[i]} in ${charclass}`);
         ranges.push([cp, cp]);
       }
     }
@@ -413,16 +450,16 @@ class RegexParse {
     return [ranges, negated];
   }
 
-  tokenize() {
+  tokenize(): Token[] {
     // JS doesn't support Python's (?P<name>) groups; we implement sequential scanning.
     // We mimic the token list in pyfoma.py.
     const s = this.expression;
-    const tokens = [];
+    const tokens: Token[] = [];
     let i = 0;
     let lineNum = 1;
     let lineStart = 0;
 
-    const pushTok = (op, value, startIdx) => {
+    const pushTok = (op: string, value: any, startIdx: number) => {
       const col = startIdx - lineStart;
       tokens.push([op, value, lineNum, col]);
     };
@@ -581,10 +618,10 @@ class RegexParse {
     });
   }
 
-  _insertInvisibles(tokens) {
+  _insertInvisibles(tokens: Token[]): Token[] {
     const resetters = new Set([...RegexParse.operators].filter((x) => !RegexParse.unarypost.has(x)));
     let counter = 0;
-    const result = [];
+    const result: Token[] = [];
     for (const [token, value, ln, col] of tokens) {
       if (counter === 1 && (token === "LPAREN" || token === "COMPLEMENT" || token === "FUNC" || RegexParse.operands.has(token))) {
 
@@ -597,10 +634,10 @@ class RegexParse {
     }
 
     // epsilon insertion hack for rewrite/restrict contexts
-    const newresult = [];
+    const newresult: Token[] = [];
     let prevt = null;
     for (const tok of result) {
-      const [token, value, ln, col] = tok;
+      const [token, _value, ln, col] = tok;
       if (((token === "COMMA" || token === "PARAM") && prevt === "PAIRUP") ||
           (token === "PAIRUP" && (prevt === "CONTEXT" || prevt === "COMMA")) ||
           (token === "RPAREN" && prevt === "PAIRUP")) {
@@ -612,9 +649,9 @@ class RegexParse {
     return newresult;
   }
 
-  parse() {
-    const output = [];
-    const stack = [];
+  parse(): Token[] {
+    const output: Token[] = [];
+    const stack: Token[] = [];
     for (const [token, value, ln, col] of this.tokenized) {
       if (RegexParse.operands.has(token) || RegexParse.unarypost.has(token)) {
         output.push([token, value, ln, col]);
@@ -624,48 +661,48 @@ class RegexParse {
         while (true) {
           if (!stack.length) this._errorReport(SyntaxError, "Too many closing parentheses.", ln, col);
           if (stack[stack.length - 1][0] === "LPAREN") break;
-          output.push(stack.pop());
+          output.push(stack.pop()!);
         }
         stack.pop();
-        if (stack.length && stack[stack.length - 1][0] === "FUNC") output.push(stack.pop());
+        if (stack.length && stack[stack.length - 1][0] === "FUNC") output.push(stack.pop()!);
       } else if (RegexParse.operators.has(token)) {
         while (stack.length && RegexParse.operators.has(stack[stack.length - 1][0]) &&
                RegexParse.precedence[stack[stack.length - 1][0]] >= RegexParse.precedence[token]) {
-          output.push(stack.pop());
+          output.push(stack.pop()!);
         }
         stack.push([token, value, ln, col]);
       }
     }
-    while (stack.length) output.push(stack.pop());
+    while (stack.length) output.push(stack.pop()!);
     return output;
   }
 
-  compile() {
-    const stack = [];
+  compile(): FST {
+    const stack: any[] = [];
     let parameterStack = [];
 
-    const stackCheck = (s, ln, col) => {
+    const stackCheck = (s: any[], ln: number, col: number) => {
       if (!s.length) this._errorReport(SyntaxError, "You stopped making sense!", ln, col);
       return s;
     };
-    const pop1 = (ln, col) => stackCheck(stack, ln, col).pop()[0];
-    const peek = (ln, col) => stackCheck(stack, ln, col)[stack.length - 1][0];
-    const append = (elem) => { stack.push([elem]); };
-    const merge = (ln, col) => {
+    const pop1 = (ln: number, col: number) => stackCheck(stack, ln, col).pop()![0];
+    const peek = (ln: number, col: number) => stackCheck(stack, ln, col)[stack.length - 1][0];
+    const append = (elem: any) => { stack.push([elem]); };
+    const merge = (ln: number, col: number) => {
       stackCheck(stack, ln, col);
       const one = stack.pop();
       stackCheck(stack, ln, col);
       stack.push(stack.pop().concat(one));
     };
-    const pairup = (ln, col) => {
+    const pairup = (ln: number, col: number) => {
       stackCheck(stack, ln, col);
       const one = stack.pop();
       stackCheck(stack, ln, col);
       stack.push([tuple(stack.pop().concat(one))]);
     };
-    const getArgs = (ln, col) => stackCheck(stack, ln, col).pop();
+    const getArgs = (ln: number, col: number) => stackCheck(stack, ln, col).pop();
 
-    const tuple = (arr) => arr; // JS: represent tuples as arrays
+    const tuple = (arr: any) => arr; // JS: represent tuples as arrays
 
     for (const [op, value, ln, col] of this.parsed) {
       if (op === "FUNC") {
@@ -1229,7 +1266,7 @@ export class FST {
   // Copy helpers
   // ------------------------
 
-  copyFiltered(filterStates = null) {
+  copyFiltered(filterStates = null): [FST, Map<any, any>] {
     const mapping = new Map();
     const newfst = new FST();
     const statesToCopy = filterStates ? new Set(filterStates) : new Set(this.states);
@@ -1253,7 +1290,7 @@ export class FST {
     return [newfst, mapping];
   }
 
-  copyMod({ modLabel = null, modWeight = null } = {}) {
+  copyMod({ modLabel = null, modWeight = null } = {}): FST {
     const [newfst] = this.copyFiltered();
     if (!modLabel && !modWeight) return newfst;
 
