@@ -1302,7 +1302,7 @@ function _parse_line_to_exprs(line: string, for_patterns_section: boolean): PatE
   return exprs;
 }
 
-function parse_lexd(lexdstring: string): ParsedLexd {
+export function parse_lexd(lexdstring: string): ParsedLexd {
   const lines = lexdstring.split("\n");
   let mode: "PATTERNS" | "PATTERN" | "LEXICON" | "ALIAS" | null = null;
   let curr_name: string | null = null;
@@ -1385,7 +1385,7 @@ function parse_lexd(lexdstring: string): ParsedLexd {
       }
     }
     if (mode === "PATTERNS") {
-      top_patterns.concat(_parse_line_to_exprs(line, true));
+      top_patterns.push(..._parse_line_to_exprs(line, true));
       continue;
     }
     if (mode === "PATTERN") {
