@@ -1,5 +1,5 @@
 // -*- js-indent-level: 2 -*-
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest';
 import { FST, RegexParse, MinHeap, PartitionRefinement, Transition, State, labelKey } from './pyfoma.js';
 
 describe('MinHeap', () => {

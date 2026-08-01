@@ -32,7 +32,7 @@ Main entry point:
 Usage example:
 
 
-import { lexd } from "pyfoma-js";
+import { lexd_compile } from "pyfoma-js";
 
 const grammar = `
 PATTERNS
@@ -51,17 +51,17 @@ LEXICON NounNumber
 <pl>:s
 `;
 
-const myfst = lexd.compile(grammar)
+const myfst = lexd_compile(grammar);
 
 # Generate surface forms
-console.log(Array.from(myfst.generate("cat<pl>")))
+console.log(Array.from(myfst.generate("cat<pl>")));
 # → ['cats']
 
 # Analyze
-console.log(Array.from(myfst.analyze("ex-dogs")))
+console.log(Array.from(myfst.analyze("ex-dogs")));
 # → ['ex-dog<pl>']
 
-console.log(Array.from(myfst.analyze("cats")))
+console.log(Array.from(myfst.analyze("cats")));
 # → ['cat<pl>']
 */
 
