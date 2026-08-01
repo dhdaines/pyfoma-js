@@ -10,4 +10,4 @@ Documentation to come soon!
 
 ## Installation
 
-    npm install @dhdaines/pyfoma-js
+    npm install pyfoma-js
