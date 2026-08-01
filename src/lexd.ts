@@ -65,7 +65,7 @@ console.log(Array.from(myfst.analyze("cats")))
 # → ['cat<pl>']
 */
 
-import { FST, type Label } from "./pyfoma.js";
+import { FST, State, type Label } from "./pyfoma.js";
 
 function epsilon_fst(): FST {
     return new FST({label: [""]});
@@ -84,6 +84,41 @@ function _normalize_label(label: Label): Label {
     return [label[0]];
   }
   return label;
+}
+
+function union_all(fsts: FST[]): FST {
+  let out: FST | null = null;
+  for (const f of fsts) {
+    if (out === null)
+      out = f;
+    else
+      out = out.union(f);
+  }
+  return out || new FST();
+}
+
+/**
+ * Create FST from list of list of labels (tuples of symbols).
+ */
+function from_tuples(tuples_iter: Label[][]): FST {
+  const newfst = new FST();
+  for (const tpls of tuples_iter) {
+    let currstate = newfst.initialstate;
+    for (const raw_label of tpls) {
+      const label = _normalize_label(raw_label);
+      for (const sym of label) {
+        if (sym && !newfst.alphabet.has(sym))
+          newfst.alphabet.add(sym);
+      }
+      const targetstate = new State();
+      newfst.states.add(targetstate);
+      currstate.addTransition(targetstate, label, 0.0);
+      currstate = targetstate;
+    }
+    newfst.finalstates.add(currstate)
+    currstate.finalweight = 0.0
+  }
+  return newfst;
 }
 
 /* ----------------------------------------
@@ -1665,7 +1700,7 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
       if (expr === undefined)
         throw new Error(`Undefined pattern ${name}`);
       expr = _apply_selector_distribution(expr, tok.selector);
-      const f = compile_expr(expr, {});
+      const f = compile_expr(expr, new Map(), null);
       pat_cache.set(key, f);
       return f;
     }
@@ -1679,8 +1714,8 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
       if (name.startsWith("__POSTSEL__:")) {
         const lit = name.substring("__POSTSEL__:".length);
         const syms = _tokenize_symbols(lit, strict_quoted);
-        const labels: [string, string][] = syms.map(s => [s, s]);
-        let fst = from_tuples(labels);
+        const labels: Label[] = syms.map(s => [s, s]);
+        let fst = from_tuples([labels]);
         return fst.determinize().minimizeAsDFA();
       }
       throw new Error(`Unknown lexicon/pattern: ${name}`);
@@ -1890,9 +1925,9 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
       if (expr.q === "?")
         return epsilon_fst().union(base);
       if (expr.q === "*")
-        return kleene_star(base);
+        return base.kleeneClosure("star");
       if (expr.q === "+")
-        return kleene_plus(base);
+        return base.kleeneClosure("plus");
       throw new Error(`Unknown quantifier: ${expr.q}`);
     }
 
