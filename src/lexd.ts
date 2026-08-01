@@ -1451,10 +1451,10 @@ export function parse_lexd(lexdstring: string): ParsedLexd {
       if (lex.arity == 1 && cols.length) {
         let colstr = cols.join(" ");
         lex.entries.push({cols: [colstr], tags: merged})
-        continue;
       }
+      continue;
     }
-    throw new Error(`Line outside a section: ${line}`);
+    throw new Error(`Line outside a section (mode ${mode}): ${line}`);
   }
 
   return {patterns, top_patterns, lexicons, aliases};
@@ -1691,7 +1691,7 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
     if (tok.kind === "pair")
       throw new Error("Internal: pair tokens must be compiled in compile_seq_aligned()");
 
-    if (name in parsed.patterns && !(resolve_name(name) in parsed.lexicons)) {
+    if (parsed.patterns.has(name) && !(parsed.lexicons.has(resolve_name(name)))) {
       const key = JSON.stringify([name, tok.selector.clauses]);
       const pattern = pat_cache.get(key);
       if (pattern !== undefined)
@@ -1949,10 +1949,14 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
     outfst = empty_fst();
   }
 
-  try {
+  // FIXME: Weighted determinization doesn't seem to work correctly in
+  // pyfoma-js but lexd is unweighted anyway!
+  /*try {
     outfst = outfst.determinize().minimizeAsDFA();
   } catch (e) {
     outfst = outfst.determinize();
-  }
+    }*/
+  // So this does unweighted determinization and minimization
+  outfst.minimize();
   return outfst;
 }
