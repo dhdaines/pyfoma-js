@@ -117,9 +117,10 @@ export class State {
   _transitionsout: Map<string, Set<[labelArray, Transition]>> | null;
   finalweight: number;
   name: string | null;
-  constructor({ finalweight, name }:
-              {finalweight: number, name: string | null}
-              = {finalweight: floatInf(), name:null}) {
+  _id?: number;
+
+  constructor({ finalweight = floatInf(), name = null }:
+              {finalweight?: number, name?: string | null} = {}) {
     this.transitions = new Map();
     this._transitionsin = null;
     this._transitionsout = null;
@@ -298,6 +299,13 @@ type FunctionObject = {name: string, fn: Function};
 type Token = [string, any, number, number];
 type DefinedMapping = {[name: string]: FST};
 type FunctionMapping = {[name: string]: Function};
+type FunctionSet = Set<Function | FunctionObject>;
+type FinalFFunction = (x: [boolean, boolean]) => boolean;
+type OPlusFunction = (x: number, y: number) => number;
+type PathFollowFunction = (x: Set<string>, y: Set<string>) => Set<string>;
+type ModLabelFunction = (lbl: labelArray, w: number) => labelArray;
+type ModWeightFunction = (lbl: labelArray, w: number) => number;
+type StateRepFunction = (s: State, w: number) => [State, number];
 
 export class RegexParse {
   static shortops: {[op: string]: string} = {
@@ -364,7 +372,7 @@ export class RegexParse {
   parsed: Token[];
   compiled: FST;
 
-  constructor(regExp: string, defined: {[name: string]: FST}, functions: Array<Function | FunctionObject>) {
+  constructor(regExp: string, defined: {[name: string]: FST}, functions: FunctionSet) {
     this.defined = defined;
     this.functions = {};
     // Custom functions are passed in as an iterable. We accept either:
@@ -815,6 +823,11 @@ export class RegexParse {
 // ------------------------
 
 export class FST {
+  states: Set<State>;
+  initialstate: State;
+  finalstates: Set<State>;
+  alphabet: Set<string>;
+
   // ----------------------------------------------------------------------
   // Macro / function registry
   //
@@ -848,7 +861,7 @@ export class FST {
     FST._macros.clear();
   }
 
-  static _macroFunctions(defined: DefinedMapping, functions: Array<Function | FunctionObject>): FunctionObject[] {
+  static _macroFunctions(defined: DefinedMapping, functions: FunctionSet): FunctionObject[] {
     // Convert macro registry to function objects understood by RegexParse.
     // Custom functions passed by the caller should override macros.
     const overridden = new Set();
@@ -884,7 +897,7 @@ export class FST {
     newfst.finalstates = new Set([second]);
     second.finalweight = 0.0;
 
-    const alphabet = new Set();
+    const alphabet = new Set<string>();
     for (const [start, end] of ranges) {
       for (let cp = start; cp <= end; cp++) {
         const sym = String.fromCodePoint(cp);
@@ -902,7 +915,7 @@ export class FST {
     return newfst;
   }
 
-  static regex(regExp: string, defined = {}, functions = new Set()) {
+  static regex(regExp: string, defined: DefinedMapping = {}, functions: FunctionSet = new Set()) {
     // Always include macros (as functions) unless the caller overrides them.
     const fnSet = new Set(functions);
     for (const mf of FST._macroFunctions(defined, fnSet)) fnSet.add(mf);
@@ -910,13 +923,14 @@ export class FST {
     return rp.compiled;
   }
 
-  static re(regExp, defined = {}, functions = new Set()) {
+  static re(regExp: string, defined: DefinedMapping = {}, functions: FunctionSet = new Set()) {
     return FST.regex(regExp, defined, functions);
   }
 
-  static fromLabel(label, weight = 0.0) {
+  static fromLabel(label: labelArray, weight = 0.0) {
     const fst = new FST();
     // Label is array of strings; epsilon if [""]
+    // FIXME: That's not the same definition used elsewhere
     if (label.length === 1 && label[0] === "") {
       fst.finalstates.add(fst.initialstate);
       fst.initialstate.finalweight = weight;
@@ -931,20 +945,22 @@ export class FST {
     return fst;
   }
 
-  constructor({ label = null, weight = 0.0, alphabet = null } = {}) {
+  constructor({label, weight = 0.0, alphabet}:
+              { label?: string | labelArray, weight?: number, alphabet?: Set<string> } = {}) {
     this.alphabet = alphabet ? new Set(alphabet) : new Set();
     this.initialstate = new State();
     this.states = new Set([this.initialstate]);
     this.finalstates = new Set();
-    if (label !== null) {
-      const lbl = Array.isArray(label) ? label : [label];
-      const built = FST.fromLabel(lbl, weight);
+    if (label !== undefined) {
+      if (!(label instanceof Array))
+        label = [label];
+      const built = FST.fromLabel(label, weight);
       this.become(built);
     }
   }
 
   // Mutate into other
-  become(other) {
+  become(other: FST): FST {
     this.alphabet = other.alphabet;
     this.initialstate = other.initialstate;
     this.states = other.states;
@@ -955,7 +971,7 @@ export class FST {
   get length() { return this.states.size; }
 
   // AT&T representation
-  toATT() {
+  toATT(): string {
     const ids = [];
     for (const s of this.states) if (s !== this.initialstate) ids.push(s);
     const statenums = new Map();
@@ -982,7 +998,7 @@ export class FST {
   // ------------------------------------------------------------
   // Port of pyfoma.FST.to_fomastring (see fomastring.py).
   // Limitations match the Python version: only 1- or 2-tape FSTs.
-  toFomastring(fstname = null) {
+  toFomastring(fstname: string | null = null): string {
     const NO = 0, YES = 1, UNKNOWN = 2;
 
     // Deterministic, stable state numbering: BFS from initial.
@@ -991,7 +1007,7 @@ export class FST {
       const q = [this.initialstate];
       const seen = new Set([this.initialstate]);
       while (q.length) {
-        const s = q.shift();
+        const s = q.shift()!;
         orderedStates.push(s);
         for (const [_, t] of s.allTransitions()) {
           const dst = t.targetstate;
@@ -1036,7 +1052,8 @@ export class FST {
     {
       for (const s of orderedStates) {
         const seenIn = new Set();
-        for (const [label, tr] of s.allTransitions()) {
+        // FIXME: Don't need allTransitions here! Quite inefficient!
+        for (const [label, _] of s.allTransitions()) {
           const inSym = label[0];
           if (inSym === '') { is_deterministic_ = NO; break; }
           const key = `${inSym}`;
@@ -1053,7 +1070,7 @@ export class FST {
       const temp = new Set();
       const perm = new Set();
       let cyclic = false;
-      const dfs = (s) => {
+      const dfs = (s: State) => {
         if (cyclic) return;
         if (perm.has(s)) return;
         if (temp.has(s)) { cyclic = true; return; }
@@ -1068,7 +1085,7 @@ export class FST {
       // DAG DP in reverse topological order via finishing order in perm.
       // We'll just use a memoized recursion since it's acyclic.
       const memo = new Map();
-      const countFrom = (s) => {
+      const countFrom = (s: State) => {
         if (memo.has(s)) return memo.get(s);
         let total = this.finalstates.has(s) ? 1n : 0n;
         for (const [_, tr] of s.allTransitions()) {
@@ -1118,7 +1135,7 @@ export class FST {
     const weightstr = ['##weights##'];
     let linecount_ = 1; // foma expects 1 + number of lines in ##states## section (excluding sentinel)
 
-    const mapLabelForFoma = (label) => {
+    const mapLabelForFoma = (label: labelArray) => {
       let out = label.slice();
       if (out.includes('.')) {
         if (out.length === 1) {
@@ -1188,6 +1205,7 @@ export class FST {
                             : (intro.concat(sigmastr, statestr, ['##end##']));
     return parts.join('\n') + '\n';
   }
+  static _fomaNameCounter: number | null = null;
 
   numberUnnamedStates(force = false) {
     const c = new Counter();
@@ -1201,13 +1219,13 @@ export class FST {
 
   // DOT graph for viz.js
   toDot({ raw = false, showWeights = false, showAlphabet = true } = {}) {
-    const floatFormat = (num) => {
+    const floatFormat = (num: number) => {
       if (!showWeights) return "";
       let s = num.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
       if (s === "-0") s = "0";
       return "/" + s;
     };
-    const fmtLabel = (lbl) => lbl.map((x) => (x === "" ? "ε" : x)).join(":");
+    const fmtLabel = (lbl: labelArray) => lbl.map((x) => (x === "" ? "ε" : x)).join(":");
 
     const statenums = this.numberUnnamedStates();
     const sigma = showAlphabet ? `Σ: {${Array.from(this.alphabet).sort().join(",")}}` : "";
@@ -1241,7 +1259,7 @@ export class FST {
         grouped.get(t.targetstate).push([label, t.weight]);
       }
       for (const [target, arr] of grouped.entries()) {
-        const labellist = arr.map(([lbl, w]) => {
+        const labellist = arr.map(([lbl, w]: [labelArray, number]) => {
           if (raw) return `${JSON.stringify(lbl)}/${w}`;
           return `${fmtLabel(lbl)}${floatFormat(w)}`;
         }).sort();
@@ -1260,10 +1278,10 @@ export class FST {
   // Copy helpers
   // ------------------------
 
-  copyFiltered(filterStates = null): [FST, Map<any, any>] {
+  copyFiltered(filterStates: Set<State> | null = null): [FST, Map<any, any>] {
     const mapping = new Map();
     const newfst = new FST();
-    const statesToCopy = filterStates ? new Set(filterStates) : new Set(this.states);
+    const statesToCopy: Set<State> = filterStates ? new Set(filterStates) : new Set(this.states);
 
     // Ensure initial present
     if (!statesToCopy.has(this.initialstate)) statesToCopy.add(this.initialstate);
@@ -1284,7 +1302,7 @@ export class FST {
     return [newfst, mapping];
   }
 
-  copyMod({ modLabel = null, modWeight = null } = {}): FST {
+  copyMod({modLabel, modWeight}: { modLabel?: ModLabelFunction, modWeight?: ModWeightFunction } = {}): FST {
     const [newfst] = this.copyFiltered();
     if (!modLabel && !modWeight) return newfst;
 
@@ -1313,7 +1331,7 @@ export class FST {
   // Graph algorithms
   // ------------------------
 
-  *allTransitions(states) {
+  *allTransitions(states: Set<State>): Generator<[State, labelArray, Transition]> {
     for (const s of states) {
       for (const [label, t] of s.allTransitions()) {
         yield [s, label, t];
@@ -1325,7 +1343,7 @@ export class FST {
     const Q = [this.initialstate];
     const seen = new Set([this.initialstate]);
     while (Q.length) {
-      const s = Q.pop();
+      const s = Q.pop()!;
       for (const [, t] of s.allTransitions()) {
         if (!seen.has(t.targetstate)) {
           seen.add(t.targetstate);
@@ -1367,12 +1385,12 @@ export class FST {
   // Basic constructions
   // ------------------------
 
-  addWeight(w) {
+  addWeight(w: number): FST {
     for (const s of this.finalstates) s.finalweight += w;
     return this;
   }
 
-  pushWeights() {
+  pushWeights(): FST {
     // Weight pushing / reweighting (tropical).
     // We use potentials p(s)=shortest distance from s to a final (including finalweights).
     // To avoid needing a separate "initial weight" field, we normalize by p0=p(initial)
@@ -1410,12 +1428,12 @@ export class FST {
     // Dijkstra on reversed graph with weights.
     const rev = new Map();
     for (const s of this.states) rev.set(s, []);
-    for (const [s, , t] of this.allTransitions(this.states)) {
+    for (const [s, _, t] of this.allTransitions(this.states)) {
       rev.get(t.targetstate).push([s, t.weight]);
     }
 
     const dist = new Map();
-    const heap = new MinHeap();
+    const heap = new MinHeap<State>();
     for (const f of this.finalstates) {
       const d0 = f.finalweight;
       dist.set(f, d0);
@@ -1423,7 +1441,7 @@ export class FST {
     }
 
     while (heap.size) {
-      const [d, v] = heap.pop();
+      const [d, v] = heap.pop()!;
       if (d !== dist.get(v)) continue;
       for (const [u, w] of rev.get(v)) {
         const nd = d + w;
@@ -1440,7 +1458,7 @@ export class FST {
     return dist;
   }
 
-  epsilonRemove() {
+  epsilonRemove(): FST {
     // Port of epsilon_remove (epsilon-free). This is a simplified but compatible version.
     // Compute epsilon-closure with cheapest epsilon paths.
     // Works for the use cases in test_pyfoma.py.
@@ -1450,8 +1468,8 @@ export class FST {
     // Precompute epsilon closures with Dijkstra per state (only eps transitions).
     const closures = new Map(); // state -> Map<state, cost>
 
-    const epsNeighbors = (s) => {
-      const out = [];
+    const epsNeighbors = (s: State) => {
+      const out: [State, number][] = [];
       for (const [label, t] of s.allTransitions()) {
         if (label.every((x) => x === eps)) out.push([t.targetstate, t.weight]);
       }
@@ -1460,11 +1478,11 @@ export class FST {
 
     for (const s of this.states) {
       const dist = new Map();
-      const heap = new MinHeap();
+      const heap = new MinHeap<State>();
       dist.set(s, 0.0);
       heap.push([0.0, s]);
       while (heap.size) {
-        const [d, v] = heap.pop();
+        const [d, v] = heap.pop()!;
         if (d !== dist.get(v)) continue;
         for (const [nxt, w] of epsNeighbors(v)) {
           const nd = d + w;
@@ -1496,7 +1514,7 @@ export class FST {
       const newMap = new Map();
       for (const [mid, ecost] of clos.entries()) {
         for (const [label, t] of mid.allTransitions()) {
-          if (label.every((x) => x === eps)) continue;
+          if (label.every((x: string) => x === eps)) continue;
           const k = labelKey(label);
           if (!newMap.has(k)) newMap.set(k, { label, set: new Set() });
           newMap.get(k).set.add(new Transition(t.targetstate, label, ecost + t.weight));
@@ -1520,7 +1538,7 @@ export class FST {
     // Epsilon-free closure as in pyfoma.py: replicate initial transitions,
     // and from each final state add transitions that mimic the initial state's outgoing arcs.
     const q1 = new Map();
-    for (const s of this.states) q1.set(s, new State({ name: s.name }));
+    for (const s of this.states) q1.set(s, new State({ finalweight: 0.0, name: s.name }));
 
     const newfst = new FST({ alphabet: new Set(this.alphabet) });
 
@@ -1555,7 +1573,7 @@ export class FST {
     newfst.states.add(newfst.initialstate);
     return this.become(newfst);
   }
-  concatenate(other) {
+  concatenate(other: FST): FST {
     // Epsilon-free concatenation (ported from pyfoma.py).
     this._harmonizeAlphabet(other);
     const [ocopy] = other.copyFiltered(); // copy since self may equal other
@@ -1599,7 +1617,7 @@ export class FST {
     return this.become(newfst);
   }
 
-  union(other) {
+  union(other: FST): FST {
     this._harmonizeAlphabet(other);
     const [A] = this.copyFiltered();
     const [B] = other.copyFiltered();
@@ -1640,15 +1658,15 @@ export class FST {
     return this.become(newfst);
   }
 
-  intersection(other) {
+  intersection(other: FST): FST {
     return this.product(other, {
       finalf: (x) => x[0] && x[1],
       oplus: (x, y) => x + y,
-      pathfollow: (x, y) => setIntersection(x, y),
+      pathfollow: setIntersection,
     });
   }
 
-  difference(other) {
+  difference(other: FST): FST {
     return this.product(other, {
       finalf: (x) => x[0] && !x[1],
       oplus: (x, _y) => x,
@@ -1656,11 +1674,13 @@ export class FST {
     });
   }
 
-  complement() {
+  complement(): FST {
     return FST.re(".* - $X", { X: this });
   }
 
-  product(other, { finalf = (x) => x[0] || x[1], oplus = Math.min, pathfollow = (x, y) => setUnion(x, y) } = {}) {
+  product(other: FST,
+          { finalf = (x) => x[0] || x[1], oplus = Math.min, pathfollow = setUnion }:
+          {finalf?: FinalFFunction, oplus?: OPlusFunction, pathfollow?: PathFollowFunction} = {}): FST {
     this._harmonizeAlphabet(other);
     const newfst = new FST();
     const Q = [[this.initialstate, other.initialstate]];
@@ -1668,12 +1688,12 @@ export class FST {
     S.set(`${this.initialstate._id ?? 0}|${other.initialstate._id ?? 0}`, newfst.initialstate);
 
     // Assign stable ids for keying
-    const idMap1 = new Map();
-    const idMap2 = new Map();
+    const idMap1 = new Map<State, number>();
+    const idMap2 = new Map<State, number>();
     let idc = 0;
     for (const s of this.states) idMap1.set(s, idc++);
     for (const s of other.states) idMap2.set(s, idc++);
-    const key = (a, b) => `${idMap1.get(a)}|${idMap2.get(b)}`;
+    const key = (a: State, b: State) => `${idMap1.get(a)}|${idMap2.get(b)}`;
 
     S.clear();
     S.set(key(this.initialstate, other.initialstate), newfst.initialstate);
@@ -1682,7 +1702,7 @@ export class FST {
     const dead2 = new State({ finalweight: floatInf() });
 
     while (Q.length) {
-      const [t1s, t2s] = Q.pop();
+      const [t1s, t2s] = Q.pop()!;
       const current = S.get(key(t1s, t2s));
       current.name = [t1s.name, t2s.name];
       if (finalf([this.finalstates.has(t1s), other.finalstates.has(t2s)])) {
@@ -1714,7 +1734,7 @@ export class FST {
     return this.become(newfst);
   }
 
-  invert() {
+  invert(): FST {
     for (const s of this.states) {
       const newMap = new Map();
       for (const { label, set } of s.transitions.values()) {
@@ -1732,14 +1752,14 @@ export class FST {
     return this;
   }
 
-  ignore(other) {
+  ignore(other: FST): FST {
     const newfst = FST.re("$^output($A @ ('.'|'':$B)*)", { A: this, B: other });
     return this.become(newfst);
   }
 
-  project(dim = 0) {
-    const sl = (dim === -1) ? (lbl) => [lbl[lbl.length - 1]] : (lbl) => [lbl[dim]];
-    const newAlphabet = new Set();
+  project(dim = 0): FST {
+    const sl = (dim === -1) ? (lbl: labelArray) => [lbl[lbl.length - 1]] : (lbl: labelArray) => [lbl[dim]];
+    const newAlphabet = new Set<string>();
     const newfst = this.copyMod();
     for (const s of newfst.states) {
       const newTrans = new Map();
@@ -1760,7 +1780,7 @@ export class FST {
     return this.become(newfst);
   }
 
-  reverse() {
+  reverse(): FST {
     // epsilon-free reverse
     const newfst = new FST({ alphabet: this.alphabet });
     const mapping = new Map();
@@ -1785,10 +1805,10 @@ export class FST {
     return this.become(newfst);
   }
 
-  reverseE() {
+  reverseE(): FST {
     // reverse with epsilons (rarely used in tests)
     const newfst = new FST({ alphabet: this.alphabet });
-    newfst.initialstate = new State({ name: Array.from(this.finalstates).map((k) => k.name) });
+    newfst.initialstate = new State({ name: Array.from(this.finalstates).map((k) => k.name).join(",") });
     const mapping = new Map();
     for (const s of this.states) mapping.set(s, new State({ name: s.name }));
     for (const t of this.finalstates) {
@@ -1805,17 +1825,17 @@ export class FST {
   }
 
   // Cross product: implemented via composition (as in pyfoma.py)
-  crossProduct(other, optional = false) {
+  crossProduct(other: FST, optional = false): FST {
     this._harmonizeAlphabet(other);
 
     // Pad self with an empty output tape, pad other with an empty input tape, then compose.
     const a = this.copyMod({
-      modLabel: (lbl, _w) => lbl.concat([""]),
-      modWeight: (_lbl, w) => w,
+      modLabel: (lbl: labelArray, _w: number) => lbl.concat([""]),
+      modWeight: (_lbl: labelArray, w: number) => w,
     });
     const b = other.copyMod({
-      modLabel: (lbl, _w) => [""].concat(lbl),
-      modWeight: (_lbl, w) => w,
+      modLabel: (lbl: labelArray, _w: number) => [""].concat(lbl),
+      modWeight: (_lbl: labelArray, w: number) => w,
     });
 
     const composed = a.compose(b);
@@ -1825,13 +1845,13 @@ export class FST {
     return this.become(composed);
   }
 
-  compose(other) {
+  compose(other: FST): FST {
     this._harmonizeAlphabet(other);
 
     // Composition with epsilon filtering (ported from pyfoma.py).
     // Supports k-tape labels represented as arrays.
-    const mergeTuples = (x, y) => {
-      let t;
+    const mergeTuples = (x: labelArray, y: labelArray) => {
+      let t: labelArray;
       if (x.length === 1) {
         // expand acceptor x into 2-tape-on-the-fly
         t = x.concat(y.slice(1));
@@ -1853,23 +1873,26 @@ export class FST {
     // expands/behaves correctly later.
     for (const sym of this.alphabet) if (sym !== "") newfst.alphabet.add(sym);
     for (const sym of other.alphabet) if (sym !== "") newfst.alphabet.add(sym);
-    const Q = [[this.initialstate, other.initialstate, 0]];
+    const Q: [State, State, number][] = [[this.initialstate, other.initialstate, 0]];
     let qh = 0;
 
-    const idMap1 = new Map();
-    const idMap2 = new Map();
+    const idMap1 = new Map<State, number>();
+    const idMap2 = new Map<State, number>();
     let idc = 0;
     for (const s of this.states) idMap1.set(s, idc++);
     for (const s of other.states) idMap2.set(s, idc++);
-    const key = (a, b, m) => `${idMap1.get(a)}|${idMap2.get(b)}|${m}`;
+    const key = (a: State, b: State, m: number) => `${idMap1.get(a)}|${idMap2.get(b)}|${m}`;
 
-    const S = new Map();
-    S.set(key(this.initialstate, other.initialstate, 0), newfst.initialstate);
+    const S = new Map<string, State>();
+    S.set(key(...Q[0]), newfst.initialstate);
 
     while (qh < Q.length) {
       const [A, B, mode] = Q[qh++];
-      const current = S.get(key(A, B, mode));
-      current.name = [A.name, B.name, mode];
+      const currKey = key(A, B, mode);
+      const current = S.get(currKey);
+      if (current === undefined) // Should not happen?
+        throw `Undefined state ${currKey}`;
+      current.name = [A.name, B.name, mode].toString();
 
       // In pyfoma, finality does not depend on the epsilon-filter mode.
       if (this.finalstates.has(A) && other.finalstates.has(B)) {
@@ -1897,7 +1920,7 @@ export class FST {
               Q.push([target1, target2, 0]);
             }
             const newLabel = mergeTuples(outlbl, inlbl);
-            current.addTransition(S.get(nextKey), newLabel, outtrans.weight + intrans.weight);
+            current.addTransition(S.get(nextKey)!, newLabel, outtrans.weight + intrans.weight);
             for (const sym of newLabel) if (sym !== "") newfst.alphabet.add(sym);
           }
         }
@@ -1916,7 +1939,7 @@ export class FST {
           newfst.states.add(ns);
           Q.push([target1, target2, 1]);
         }
-        current.addTransition(S.get(nextKey), outlbl, outtrans.weight);
+        current.addTransition(S.get(nextKey)!, outlbl, outtrans.weight);
         for (const sym of outlbl) if (sym !== "") newfst.alphabet.add(sym);
       }
 
@@ -1932,7 +1955,7 @@ export class FST {
           newfst.states.add(ns);
           Q.push([target1, target2, 2]);
         }
-        current.addTransition(S.get(nextKey), inlbl, intrans.weight);
+        current.addTransition(S.get(nextKey)!, inlbl, intrans.weight);
         for (const sym of inlbl) if (sym !== "") newfst.alphabet.add(sym);
       }
     }
@@ -1942,10 +1965,10 @@ export class FST {
 
 
   // ------------------------------
-  // Context restriction + rewrite 
+  // Context restriction + rewrite
   // ------------------------------
 
-  contextRestrict(...contexts) {
+  contextRestrict(...contexts: any): FST {
     let rewrite = false;
     // last arg could be kwargs object
     if (contexts.length && typeof contexts[contexts.length - 1] === "object" && !Array.isArray(contexts[contexts.length - 1])) {
@@ -1987,14 +2010,17 @@ export class FST {
     return this.become(newfst);
   }
 
-  rewrite(...contexts) {
+  rewrite(...contexts: any): FST {
     // Flags are passed as last object literal; pyfoma stores them as strings 'True'
-    let flags = {};
+    let flags: {longest?: boolean, leftmost?: boolean, shortest?: boolean} = {};
     if (contexts.length && typeof contexts[contexts.length - 1] === "object" && !Array.isArray(contexts[contexts.length - 1])) {
       flags = contexts.pop();
     }
 
-    const defs = { crossproducts: this.copyMod() };
+    const defs: {
+      crossproducts: FST, br?: FST, aux?: FST, dotted?: FST, base?: FST, rule?: FST, remrewr?: FST,
+      worsen?: FST, rewr?: FST
+    } = { crossproducts: this.copyMod() };
     defs.br = FST.re("'@<@'|'@>@'");
     defs.aux = FST.re(". - ($br|#)", defs);
     defs.dotted = FST.re(".*-(.* '@<@' '@>@' '@<@' '@>@' .*)");
@@ -2002,7 +2028,7 @@ export class FST {
 
     if (contexts.length > 0) {
       const center = FST.re("'@<@' (.-'@>@')* '@>@'");
-      const lrpairs = contexts.map(([l, r]) => [l.ignore(defs.br), r.ignore(defs.br)]);
+      const lrpairs = contexts.map(([l, r]: [FST, FST]) => [l.ignore(defs.br!), r.ignore(defs.br!)]);
       defs.rule = center.contextRestrict(...lrpairs, { rewrite: true }).compose(defs.base);
     } else {
       defs.rule = defs.base;
@@ -2011,7 +2037,7 @@ export class FST {
     defs.remrewr = FST.re("'@<@':'' (.-'@>@')* '@>@':''");
     const worseners = [FST.re(".* $remrewr (.|$remrewr)*", defs)];
 
-    const isTrue = (x) => x === true || x === "True";
+    const isTrue = (x: any) => x === true || x === "True";
 
     if (isTrue(flags.longest)) {
       worseners.push(FST.re(".* '@<@' $aux+ '':('@>@' '@<@'?) $aux ($br:''|'':$br|$aux)* .*", defs));
@@ -2039,7 +2065,7 @@ export class FST {
     return newfst;
   }
 
-  mapLabels(mapping) {
+  mapLabels(mapping: {[src: string]: string}): FST {
     const mp = mapping;
     for (const s of this.states) {
       const newTrans = new Map();
@@ -2056,7 +2082,7 @@ export class FST {
       s._invalidateIndexes();
     }
     // alphabet
-    const newAlpha = new Set();
+    const newAlpha = new Set<string>();
     for (const sym of this.alphabet) newAlpha.add(Object.prototype.hasOwnProperty.call(mp, sym) ? mp[sym] : sym);
     this.alphabet = newAlpha;
     return this;
@@ -2066,11 +2092,11 @@ export class FST {
   // Determinization / Minimization
   // ------------------------------------------------
 
-  determinizeUnweighted() {
+  determinizeUnweighted(): FST {
     return this.determinize((s, _w) => [s, 0.0], (..._x) => 0.0);
   }
 
-  determinizeAsDFA() {
+  determinizeAsDFA(): FST {
     const newfst = this.copyMod({
       modLabel: (l, w) => l.concat([String(w)]),
       modWeight: (_l, _w) => 0.0,
@@ -2084,15 +2110,15 @@ export class FST {
   }
 
 
-  determinize(staterep = (s, w) => [s, w], oplus = Math.min) {
+  determinize(staterep: StateRepFunction = (s: State, w: number) => [s, w], oplus: OPlusFunction = Math.min): FST {
     // Weighted determinization (ported from pyfoma.py).
     // IMPORTANT: We represent a determinized-state as a Map keyed by "sid:residual"
     // so duplicates are collapsed by value (JS Sets can't dedupe arrays by value).
     const newfst = new FST({ alphabet: this.alphabet });
 
     // Pair keying helpers
-    const pairKey = (s, r) => `${this._sid(s)}:${r}`;
-    const repKey = (rep) => {
+    const pairKey = (s: State, r: number) => `${this._sid(s)}:${r}`;
+    const repKey = (rep: Map<State, string>) => {
       const parts = Array.from(rep.keys());
       parts.sort();
       return parts.join(",");
@@ -2114,7 +2140,7 @@ export class FST {
 
     const Q = [firstRep];
     while (Q.length) {
-      const currentRep = Q.pop();
+      const currentRep = Q.pop()!;
       const currentKey = repKey(currentRep);
       const srcState = S.get(currentKey);
 
@@ -2178,7 +2204,10 @@ export class FST {
     return this.become(newfst);
   }
 
-  _sid(s) {
+  // FIXME: This is one of several state to number mappings!
+  __sidMap: Map<State, number> | null = null;
+
+  _sid(s: State): number | undefined {
     if (!this.__sidMap) {
       this.__sidMap = new Map();
       let i = 0;
@@ -2186,7 +2215,8 @@ export class FST {
     }
     return this.__sidMap.get(s);
   }
-  minimizeAsDFA() {
+
+  minimizeAsDFA(): FST {
     // Hopcroft-like DFA minimization (ported from pyfoma.py).
     // Assumes epsilon-free, deterministic machine.
 
@@ -2203,22 +2233,22 @@ export class FST {
     }
 
     // Initial partition: finals (split by finalweight) vs nonfinals
-    const finalsByWeight = new Map();
+    const finalsByWeight = new Map<number, Set<State>>();
     for (const f of this.finalstates) {
       const w = f.finalweight;
       if (!finalsByWeight.has(w)) finalsByWeight.set(w, new Set());
-      finalsByWeight.get(w).add(f);
+      finalsByWeight.get(w)!.add(f);
     }
     const nonfinals = setDifference(this.states, this.finalstates);
 
-    const initialPartition = new Set();
+    const initialPartition = new Set<Set<State>>();
     for (const block of finalsByWeight.values()) if (block.size) initialPartition.add(block);
     if (nonfinals.size) initialPartition.add(nonfinals);
 
     const P = new PartitionRefinement(initialPartition);
     const agenda = new Set(initialPartition);
 
-    const findSourceStates = (block) => {
+    const findSourceStates = (block: Set<State>) => {
       const out = [];
       for (const [lk, targetMap] of reverseIndex.entries()) {
         const sources = new Set();
@@ -2233,7 +2263,7 @@ export class FST {
     };
 
     while (agenda.size) {
-      const iter = agenda.values().next().value;
+      const iter = agenda.values().next().value!;
       agenda.delete(iter);
       for (const [, sourcestates] of findSourceStates(iter)) {
         const splits = P.refine(sourcestates);
@@ -2281,7 +2311,7 @@ export class FST {
     return this.become(newfst);
   }
 
-  minimize() {
+  minimize(): FST {
     // For our purposes, minimize as DFA after determinizeAsDFA.
     return this.determinizeAsDFA().minimizeAsDFA();
   }
@@ -2290,12 +2320,12 @@ export class FST {
   // Labeling / cleanup
   // ------------------------
 
-  labelStatesTopology() {
+  labelStatesTopology(): FST {
     const Q = [this.initialstate];
     const inqueue = new Set([this.initialstate]);
     const c = new Counter();
     while (Q.length) {
-      const s = Q.shift();
+      const s = Q.shift()!;
       s.name = String(c.next());
       for (const [, t] of s.allTransitions()) {
         if (!inqueue.has(t.targetstate)) {
@@ -2307,8 +2337,8 @@ export class FST {
     return this;
   }
 
-  cleanupSigma() {
-    const seen = new Set();
+  cleanupSigma(): FST {
+    const seen = new Set<string>();
     for (const [, lbl, ] of this.allTransitions(this.states)) {
       for (const sym of lbl) seen.add(sym);
     }
@@ -2322,7 +2352,7 @@ export class FST {
   // Apply / enumerate
   // ------------------------
 
-  tokenizeAgainstAlphabet(word) {
+  tokenizeAgainstAlphabet(word: string): string[] {
     const tokens = [];
     let start = 0;
     while (start < word.length) {
@@ -2337,17 +2367,19 @@ export class FST {
     return tokens;
   }
 
-  *apply(word, { inverse = false, weights = false } = {}) {
+  *apply(word: string,
+         {inverse = false, weights = false}:
+         {inverse?: boolean, weights?: boolean} = {}): Generator<[string, number] | string> {
     const IN = inverse ? (this._tapeCount() - 1) : 0;
     const OUT = inverse ? 0 : (this._tapeCount() - 1);
 
     const w = this.tokenizeAgainstAlphabet(word);
-    const heap = new MinHeap();
+    const heap = new MinHeap<[number, number, string[], State | null]>();
     const cntr = new Counter();
     heap.push([0.0, [0, cntr.next(), [], this.initialstate]]); // cost, payload
 
     while (heap.size) {
-      const [cost, payload] = heap.pop();
+      const [cost, payload] = heap.pop()!;
       const [negpos, _id, output, state] = payload;
 
       if (state === null && -negpos === w.length) {
@@ -2377,15 +2409,15 @@ export class FST {
     }
   }
 
-  generate(word, { weights = false } = {}) {
+  generate(word: string, {weights = false}: {weights?: boolean} = {}): Generator<[string, number] | string> {
     return this.apply(word, { inverse: false, weights });
   }
 
-  analyze(word, { weights = false } = {}) {
+  analyze(word: string, {weights = false}: {weights?: boolean} = {}): Generator<[string, number] | string> {
     return this.apply(word, { inverse: true, weights });
   }
 
-  _tapeCount() {
+  _tapeCount(): number {
     // infer tape count from the maximum label length (labels may be mixed when acceptor arcs are collapsed)
     let m = 1;
     for (const s of this.states) {
@@ -2396,12 +2428,12 @@ export class FST {
     return m;
   }
 
-  *wordsCheapest() {
+  *wordsCheapest(): Generator<[number, labelArray[]]> {
     const cntr = new Counter();
-    const heap = new MinHeap();
+    const heap = new MinHeap<[number, State | null, labelArray[]]>();
     heap.push([0.0, [cntr.next(), this.initialstate, []]]);
     while (heap.size) {
-      const [cost, payload] = heap.pop();
+      const [cost, payload] = heap.pop()!;
       const [_id, state, seq] = payload;
       if (state === null) {
         yield [cost, seq];
@@ -2426,17 +2458,17 @@ export class FST {
   // ------------------------------------------------
 
 
-  _harmonizeAlphabet(other) {
+  _harmonizeAlphabet(other: FST): void {
     // Port of pyfoma.py's @harmonize_alphabet decorator:
     // If either machine contains '.' (sigma-wildcard), expand transitions that contain '.'
     // to explicitly cover symbols present in the other machine's alphabet.
-    const setsEqual = (A, B) => {
+    const setsEqual = <T>(A: Set<T>, B: Set<T>) => {
       if (A.size !== B.size) return false;
       for (const x of A) if (!B.has(x)) return false;
       return true;
     };
 
-    const expandDots = (A, B) => {
+    const expandDots = (A: FST, B: FST) => {
       if (!A.alphabet.has('.')) return;
 
       const Ad = setDifference(A.alphabet, new Set(['.']));
@@ -2447,7 +2479,7 @@ export class FST {
       if (!Aexpand.size) return;
 
       // Snapshot the transitions to expand so we don't mutate while iterating.
-      const toExpand = [];
+      const toExpand: [State, labelArray, Transition][] = [];
       for (const s of A.states) {
         for (const { label, set } of s.transitions.values()) {
           if (!label.includes('.')) continue;
