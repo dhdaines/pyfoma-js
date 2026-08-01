@@ -1,6 +1,6 @@
 // -*- js-indent-level: 2 -*-
 import { describe, expect, test } from 'vitest'
-import { RegexParse, MinHeap, PartitionRefinement, Transition, State, labelKey } from './pyfoma.js';
+import { FST, RegexParse, MinHeap, PartitionRefinement, Transition, State, labelKey } from './pyfoma.js';
 
 describe('MinHeap', () => {
   test('initializion of an empty heap', () => {
@@ -433,16 +433,72 @@ describe("RegexParse", () => {
   });
 
   test('should throw SyntaxError for mismatched range in char class', () => {
-     // Try a range where start > end.
+    // Try a range where start > end.
     expect(
       () => new RegexParse('[z-a]')
     ).toThrow("End must be larger than start");
   });
 
   test('should throw SyntaxError for undefined range parameters', () => {
-     // Test ranges like {m,n} where m > n
+    // Test ranges like {m,n} where m > n
     expect(
       () => new RegexParse('a{3,1}').compiled
     ).toThrow("n must be greater than m in {m,n}");
+  });
+});
+
+describe('TestFST', () => {
+  test('test_rewrite', () => {
+    const f1 = FST.re("$^rewrite((ab):x / a b _ a)");
+    expect(new Set(f1.generate("abababa"))).toEqual(new Set(["abxxa"]));
+
+    const rx = [["m", "p"],
+    ["n", "t"],
+    ["ŋ", "k"]].map(([nas, stop]) => `$^rewrite([mnŋ]:${nas} / _ ${stop})`).join(" @ ");
+    const bigrule = FST.re(rx);
+    expect(Array.from(bigrule.apply("anpinkamto"))[0]).toBe("ampiŋkanto");
+  });
+
+  test('test_rewrite_weights', () => {
+    const f1 = FST.re("$^rewrite(a:?(b<1.0>))");
+    const res = Array.from(f1.analyze("bbb", { weights: true }));
+    expect(res).toHaveLength(8);
+    const totalWeight = res.reduce((sum, e) => sum + (Array.isArray(e) ? e[1] : 0), 0);
+    expect(totalWeight).toBeCloseTo(12.0);
+  });
+
+  test('rewrite directed', () => {
+    const f1 = FST.re("$^rewrite((ab|ba):x)");
+    expect(f1.states.size).toBe(5);
+    expect(new Set(f1.generate("aba"))).toEqual(new Set(["ax", "xa"]));
+
+    const f2 = FST.re("$^rewrite((ab|ba):x, leftmost = True)");
+    expect(f2.states.size).toBe(5);
+    expect(new Set(f2.generate("aba"))).toEqual(new Set(["xa"]));
+
+    const f3 = FST.re("$^rewrite((ab|ba|aba):x)");
+    expect(new Set(f3.generate("aba"))).toEqual(new Set(["ax", "xa", "x"]));
+
+    const f4 = FST.re("$^rewrite((ab|ba|aba):x, longest = True)");
+    expect(new Set(f4.generate("aba"))).toEqual(new Set(["ax", "x"]));
+
+    const f5 = FST.re("$^rewrite((ab|ba|aba):x, leftmost = True)");
+    expect(new Set(f5.generate("aba"))).toEqual(new Set(["x", "xa"]));
+
+    const f6 = FST.re("$^rewrite((ab|ba|aba):x, shortest = True)");
+    expect(new Set(f6.generate("aba"))).toEqual(new Set(["xa", "ax"]));
+
+    const f7 = FST.re("$^rewrite((ab|ba|aba):x, longest = True, leftmost = True)");
+    expect(new Set(f7.generate("aba"))).toEqual(new Set(["x"]));
+
+    const f8 = FST.re("$^rewrite((ab|ba|aba):x, shortest = True, leftmost = True)");
+    expect(new Set(f8.generate("aba"))).toEqual(new Set(["xa"]));
+  });
+
+  test('cross product', () => {
+    const f1 = FST.re("'' : x");
+    expect(new Set(f1.generate(""))).toEqual(new Set(["x"]));
+    const f2 = FST.re("'' :? x");
+    expect(new Set(f2.generate(""))).toEqual(new Set(["x", ""]));
   });
 });
