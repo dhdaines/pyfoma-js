@@ -372,7 +372,7 @@ export class RegexParse {
   parsed: Token[];
   compiled: FST;
 
-  constructor(regExp: string, defined: {[name: string]: FST}, functions: FunctionSet) {
+  constructor(regExp: string, defined: {[name: string]: FST} = {}, functions: FunctionSet = new Set()) {
     this.defined = defined;
     this.functions = {};
     // Custom functions are passed in as an iterable. We accept either:

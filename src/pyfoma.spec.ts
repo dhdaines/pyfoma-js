@@ -386,7 +386,7 @@ describe('PartitionRefinement', () => {
 
 describe("RegexParse", () => {
   test("parse a simple regex", () => {
-    const parser = new RegexParse("(cat):(dog)", {}, []);
+    const parser = new RegexParse("(cat):(dog)");
     const att = parser.compiled.toATT();
     expect(att.trim()).toEqual(`0\t1\tc\td\t0
 1\t2\ta\to\t0
@@ -395,54 +395,54 @@ describe("RegexParse", () => {
   });
 
   test('should throw SyntaxError for dangling escape', () => {
-    expect(() => new RegexParse('\\', {}, [])).toThrow("Dangling escape");
+    expect(() => new RegexParse('\\')).toThrow("Dangling escape");
   });
 
   test('should throw SyntaxError when function is not followed by ()', () => {
-    expect(() => new RegexParse('$^invert', {}, [])).toThrow("Function must be followed by ()");
+    expect(() => new RegexParse('$^invert')).toThrow("Function must be followed by ()");
   });
 
   test('should throw SyntaxError for bad variable', () => {
     expect(
-      () => new RegexParse('$123invalidName', {}, [])
+      () => new RegexParse('$123invalidName')
     ).toThrow("Defined FST \"123invalidName\" not found.");
   });
 
   test('should throw SyntaxError for bad weight', () => {
     expect(
-      () => new RegexParse('a<invalid>', {}, [])
+      () => new RegexParse('a<invalid>')
     ).toThrow("Bad weight");
   });
 
   test('should throw SyntaxError for bad range', () => {
     expect(
-      () => new RegexParse('a{invalid}', {}, [])
+      () => new RegexParse('a{invalid}')
     ).toThrow("Bad range");
   });
 
   test('should throw SyntaxError for too many closing parentheses', () => {
     expect(
-      () => new RegexParse('a)', {}, [])
+      () => new RegexParse('a)')
     ).toThrow("Too many closing parentheses");
   });
 
   test('should throw SyntaxError for missing closing parenthesis', () => {
     expect(
-      () => new RegexParse('(a', {}, [])
+      () => new RegexParse('(a')
     ).toThrow("Missing closing parenthesis");
   });
 
   test('should throw SyntaxError for mismatched range in char class', () => {
      // Try a range where start > end.
     expect(
-      () => new RegexParse('[z-a]', {}, [])
+      () => new RegexParse('[z-a]')
     ).toThrow("End must be larger than start");
   });
 
   test('should throw SyntaxError for undefined range parameters', () => {
      // Test ranges like {m,n} where m > n
     expect(
-      () => new RegexParse('a{3,1}', {}, []).compiled
+      () => new RegexParse('a{3,1}').compiled
     ).toThrow("n must be greater than m in {m,n}");
   });
 });
