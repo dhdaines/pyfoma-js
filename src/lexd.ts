@@ -127,9 +127,9 @@ function from_tuples(tuples_iter: Label[][]): FST {
  */
 
 class TagSelector {
-  clauses: Array<[Set<string>, Set<string>]>;
+  clauses: [Set<string>, Set<string>][];
 
-  constructor(clauses: Array<[Set<string>, Set<string>]> = []) {
+  constructor(clauses: [Set<string>, Set<string>][]) {
     this.clauses = clauses;
   }
 
@@ -137,45 +137,48 @@ class TagSelector {
     return new TagSelector([[new Set(), new Set()]]);
   }
 
+  // Necessary because JSON.stringify always returns {} for a Set!
+  toArray(): string {
+    return JSON.stringify(this,
+                          (_key, value) => {
+                            if (value instanceof Set)
+                              return Array.from(value);
+                            return value;
+                          });
+  }
+
   matches(tags: Set<string>): boolean {
-    for (const [must, mustnot] of this.clauses) {
-      if (isSubset(must, tags) && isDisjoint(mustnot, tags)) {
+    for (const [must, mustnot] of this.clauses)
+      if (isSubset(must, tags) && isDisjoint(mustnot, tags))
         return true;
-      }
-    }
     return false;
   }
 
-  and_selector(s2: TagSelector): TagSelector {
+  and_selector(other: TagSelector): TagSelector {
     const new_clauses: Array<[Set<string>, Set<string>]> = [];
-    for (const [m1, n1] of this.clauses) {
-      for (const [m2, n2] of s2.clauses) {
+    for (const [m1, n1] of this.clauses)
+      for (const [m2, n2] of other.clauses)
         new_clauses.push([union_sets(m1, m2), union_sets(n1, n2)]);
-      }
-    }
     return new TagSelector(new_clauses);
   }
 }
 
 function isSubset<T>(a: Set<T>, b: Set<T>): boolean {
-  for (const item of a) {
+  for (const item of a)
     if (!b.has(item)) return false;
-  }
   return true;
 }
 
 function isDisjoint<T>(a: Set<T>, b: Set<T>): boolean {
-  for (const item of a) {
+  for (const item of a)
     if (b.has(item)) return false;
-  }
   return true;
 }
 
 function union_sets<T>(a: Set<T>, b: Set<T>): Set<T> {
   const result = new Set(a);
-  for (const item of b) {
+  for (const item of b)
     result.add(item);
-  }
   return result;
 }
 
@@ -232,9 +235,8 @@ function _split_selector_suffix(tok: string): [string, string | null] {
 
 function parse_tag_selector(raw: string): TagSelector {
   raw = raw.trim();
-  if (!raw) {
+  if (!raw)
     return TagSelector.make_any();
-  }
 
   const components = _split_top_level_commas(raw);
   let sel = TagSelector.make_any();
@@ -266,14 +268,12 @@ function parse_tag_selector(raw: string): TagSelector {
     }
 
     let comp_sel: TagSelector;
-    if (trimmedComp.startsWith("-")) {
+    if (trimmedComp.startsWith("-"))
       comp_sel = new TagSelector([[new Set(), new Set([trimmedComp.substring(1)])]]);
-    } else {
+    else 
       comp_sel = new TagSelector([[new Set([trimmedComp]), new Set()]]);
-    }
     sel = sel.and_selector(comp_sel);
   }
-
   return sel;
 }
 
@@ -1047,9 +1047,8 @@ function _parse_pattern_expr(tokens: string[], pos: number = 0): [PatExpr, numbe
  */
 
 function _selector_to_atomic_and_list(selector: TagSelector): TagSelector[] {
-  if (selector.clauses.length !== 1) {
+  if (selector.clauses.length !== 1)
     return [selector];
-  }
   const [must, mustnot] = selector.clauses[0];
   const atoms: TagSelector[] = [];
   const mustArray = Array.from(must).sort();
@@ -1062,9 +1061,6 @@ function _selector_to_atomic_and_list(selector: TagSelector): TagSelector[] {
 }
 
 function _apply_selector_distribution(expr: PatExpr, selector: TagSelector): PatExpr {
-  if (selector === TagSelector.make_any()) {
-    return expr;
-  }
   if (selector.clauses.length > 1) {
     return new Alt(
       selector.clauses.map(cl => _apply_selector_distribution(expr, new TagSelector([cl])))
@@ -1100,9 +1096,8 @@ function _apply_selector_distribution_single(expr: PatExpr, selector: TagSelecto
     return new Alt(expr.alts.map(a => _apply_selector_distribution_single(a, selector)));
 
   if (expr instanceof Seq) {
-    if (mustnot.size > 0 && must.size === 0) {
+    if (mustnot.size > 0 && must.size === 0)
       return new Seq(expr.parts.map(p => _apply_selector_distribution_single(p, selector)));
-    }
     if (must.size > 0 && mustnot.size === 0) {
       const alts: PatExpr[] = [];
       for (let i = 0; i < expr.parts.length; i++) {
@@ -1448,10 +1443,9 @@ export function parse_lexd(lexdstring: string): ParsedLexd {
           `Lexicon ${lex.name} expects ${lex.arity} columns, got ${cols.length} in ${line}`
         );
       }
-      if (lex.arity == 1 && cols.length) {
-        let colstr = cols.join(" ");
-        lex.entries.push({cols: [colstr], tags: merged})
-      }
+      if (lex.arity == 1 && cols.length)
+        cols = [cols.join(" ")];
+      lex.entries.push({cols, tags: merged})
       continue;
     }
     throw new Error(`Line outside a section (mode ${mode}): ${line}`);
@@ -1656,7 +1650,7 @@ export function compile(grammar: string, strict_quoted: boolean = false): FST {
   return compile_lexd(parse_lexd(grammar), strict_quoted);
 }
 
-function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
+export function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
   function resolve_name(name: string): string {
     return parsed.aliases.get(name) ?? name;
   }
@@ -1692,7 +1686,7 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
       throw new Error("Internal: pair tokens must be compiled in compile_seq_aligned()");
 
     if (parsed.patterns.has(name) && !(parsed.lexicons.has(resolve_name(name)))) {
-      const key = JSON.stringify([name, tok.selector.clauses]);
+      const key = JSON.stringify([name, ...tok.selector.toArray()]);
       const pattern = pat_cache.get(key);
       if (pattern !== undefined)
         return pattern;
@@ -1721,7 +1715,7 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
       throw new Error(`Unknown lexicon/pattern: ${name}`);
     }
 
-    const cache_key = JSON.stringify([base, tok.col, tok.side, tok.selector.clauses]);
+    const cache_key = JSON.stringify([base, tok.col, tok.side, ...tok.selector.toArray()]);
     const lex = lex_cache.get(cache_key);
     if (lex !== undefined)
       return lex;

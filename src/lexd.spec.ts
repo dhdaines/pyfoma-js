@@ -1,6 +1,6 @@
 // -*- js-indent-level: 2 -*-
 import { describe, expect, test } from 'vitest';
-import { compile as lexd_compile, parse_lexd } from "./lexd.js";
+import { compile, compile_lexd, parse_lexd  } from "./lexd.js";
 
 describe("Test lexd compiler", () => {
     test("parse a basic grammar", () => {
@@ -39,7 +39,7 @@ LEXICON NounNumber
 <sg>:
 <pl>:s
 `;
-        const myfst = lexd_compile(grammar);
+        const myfst = compile(grammar);
         expect(Array.from(myfst.generate("cat<pl>"))).toEqual(["cats"]);
         expect(Array.from(myfst.analyze("ex-dogs"))).toEqual(["ex-dog<pl>"]);
         expect(Array.from(myfst.analyze("cats"))).toEqual(["cat<pl>"]);
@@ -1135,7 +1135,8 @@ cat[nofruit,nocolor]
  */
 
 function run_pair_test(test: PairTest): boolean {
-  const fst = lexd_compile(test.grammar);
+  const parsed = parse_lexd(test.grammar);
+  const fst = compile_lexd(parsed);
 
   if (test.forbidden_alphabet_symbols) {
     const bad = new Set([...test.forbidden_alphabet_symbols].filter(x => fst.alphabet.has(x)));
@@ -1194,7 +1195,7 @@ function run_pair_test(test: PairTest): boolean {
 }
 
 function run_accept_reject_test(test: AcceptRejectTest): boolean {
-  const fst = lexd_compile(test.grammar);
+  const fst = compile(test.grammar);
 
   for (const [inp, shouldAccept] of Object.entries(test.cases)) {
     const outs = Array.from(fst.apply(inp));
@@ -1216,7 +1217,8 @@ function run_accept_reject_test(test: AcceptRejectTest): boolean {
 }
 
 function run_gold_strings_test(test: GoldStringsTest): boolean {
-  const fst = lexd_compile(test.grammar);
+  const parsed = parse_lexd(test.grammar);
+  const fst = compile_lexd(parsed);
 
   const gold = new Set(test.gold_strings);
   const maxDepth = test.max_depth || _infer_max_depth_from_gold(test.gold_strings);
