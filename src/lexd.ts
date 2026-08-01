@@ -246,7 +246,7 @@ function parse_tag_selector(raw: string): TagSelector {
  * Lexicon parsing helpers
  * ----------------------------------------
  */
- 
+
 const _TAG_RE = /\[([^\]]*)\]\s*$/;
 
 function _split_tags(s: string): [string, Set<string>] {
@@ -309,7 +309,7 @@ function _quote_multichar_for_pyfoma_regex(regex: string): string {
 
 /**
  * Split regex at the first top-level ':' (not inside quotes or parentheses/brackets).
- * 
+ *
  * Returns (left, right) or None if no top-level ':' exists.
  */
 function _split_top_level_colon(regex: string): [string, string] | null {
@@ -362,7 +362,7 @@ function _split_top_level_colon(regex: string): [string, string] | null {
  *
  * PyFoma's ': ' binds tighter than concatenation. Lexd users typically intend
  * the whole expression left of ':' and the whole expression right of ':' to be the operands.
- * 
+ *
  * Notes for PyFoma:
  *   * A missing left or right operand(e.g. 'a:' or ':b') should be treated as epsilon (''), but
  *     PyFoma's regex parser does not accept a bare missing operand, so we insert '' explicitly.
@@ -462,19 +462,6 @@ function _tokenize_symbols(x: string, strict_quoted: boolean = false): string[] 
   return out;
 }
 
-function _entry_to_labels(lexside: string, surfside: string): Label[] {
-  const L = _tokenize_symbols(lexside);
-  const R = _tokenize_symbols(surfside);
-  const n = Math.max(L.length, R.length);
-  while (L.length < n) L.push("");
-  while (R.length < n) R.push("");
-  const labels: Label[] = [];
-  for (let i = 0; i < n; i++) {
-    labels.push(_normalize_label([L[i], R[i]]));
-  }
-  return labels;
-}
-
 interface LexEntry {
   cols: string[];
   tags: Set<string>;
@@ -487,13 +474,15 @@ interface LexiconDef {
 }
 
 type TokRefKind = "lex" | "anonlex" | "pair";
-type Side = "both" | "in" | "out";
+type TokRefSide = "both" | "in" | "out";
 
 interface TokRef {
   kind: TokRefKind;
   name: string;
-  col?: number | [number, number] | null;
-  side: Side;
+  // For kind == 'lex': col is Optional[int] or Optional[tuple[int,int]] (for X(i):X(j) same-lex dual-col)
+  // For kind == 'pair': col is tuple[int,int] = (left_col, right_col) and left/right store lexicon names.
+  col: number | [number, number] | null;
+  side: TokRefSide;
   selector: TagSelector;
   left?: string;
   right?: string;
@@ -532,18 +521,16 @@ class Tagged extends PatExpr {
 }
 
 interface ParsedLexd {
-  patterns: Record<string, PatExpr>;
+  patterns: Map<string, PatExpr>;
   top_patterns: PatExpr[];
-  lexicons: Record<string, LexiconDef>;
-  aliases: Record<string, string>;
+  lexicons: Map<string, LexiconDef>;
+  aliases: Map<string, string>;
 }
 
 /* ----------------------------------------
  * Pattern tokenizer / parser
  * ----------------------------------------
  */
-
-const _SEL_SUFFIX_RE = /^(.*?)(\[[^\]]*\])$/;
 
 function _tokenize_pattern_line(line: string): string[] {
   const s = line.trim();
@@ -861,7 +848,7 @@ function _expand_sieve_line(line: string): string[] {
 }
 
 function _parse_token_ref(tok: string): TokRef {
-  let side: Side = "both";
+  let side: TokRefSide = "both";
   if (tok.startsWith(":")) {
     side = "out";
     tok = tok.substring(1);
@@ -918,7 +905,7 @@ function _parse_token_ref(tok: string): TokRef {
     };
   }
 
-  let col: number | undefined;
+  let col: number | null = null;
   const m = tok.match(/^(.+?)\((\d+)\)$/);
   if (m) {
     tok = m[1];
@@ -954,7 +941,7 @@ function _parse_pattern_expr(tokens: string[], pos: number = 0): [PatExpr, numbe
         throw new Error("missing ] in anonymous lexicon");
       }
       const anon_name = `__ANONLEX__:${raw.trim()}`;
-      return [new Ref({ kind: "anonlex", name: anon_name, side: "both", selector: TagSelector.make_any() }), p + 2];
+      return [new Ref({ kind: "anonlex", col: null, name: anon_name, side: "both", selector: TagSelector.make_any() }), p + 2];
     }
 
     return [new Ref(_parse_token_ref(tokens[p])), p + 1];
@@ -1286,10 +1273,10 @@ function parse_lexd(lexdstring: string): ParsedLexd {
   let curr_name: string | null = null;
   let curr_block_default_tags = new Set<string>();
 
-  const patterns: Record<string, PatExpr> = {};
+  const patterns = new Map<string, PatExpr>();
   const top_patterns: PatExpr[] = [];
-  const lexicons: Record<string, LexiconDef> = {};
-  const aliases: Record<string, string> = {};
+  const lexicons = new Map<string, LexiconDef>();
+  const aliases = new Map<string, string>();
 
   let i = 0;
   while (i < lines.length) {
@@ -1312,7 +1299,7 @@ function parse_lexd(lexdstring: string): ParsedLexd {
       if (head === "PATTERN") {
         mode = "PATTERN";
         curr_name = line.split(/\s+/)[1];
-        patterns[curr_name] = new Seq([]);
+        patterns.set(curr_name, new Seq([]));
         continue;
       }
       if (head === "LEXICON") {
@@ -1347,9 +1334,9 @@ function parse_lexd(lexdstring: string): ParsedLexd {
           arity = parseInt(m2[2], 10);
         }
 
-        if (!(name_part in lexicons))
-          lexicons[name_part] = { name: name_part, arity, entries: [] };
-        else if (lexicons[name_part].arity != arity)
+        if (!lexicons.has(name_part))
+          lexicons.set(name_part, { name: name_part, arity, entries: [] });
+        else if (lexicons.get(name_part)!.arity != arity)
           throw new Error(`Lexicon ${name_part} arity mismatch across blocks.`);
 
         curr_name = name_part;
@@ -1358,7 +1345,7 @@ function parse_lexd(lexdstring: string): ParsedLexd {
       }
       if (head === "ALIAS") {
         const [, src, dst] = line.split(/\s+/);
-        aliases[dst] = src;
+        aliases.set(dst, src);
         continue;
       }
     }
@@ -1371,14 +1358,16 @@ function parse_lexd(lexdstring: string): ParsedLexd {
       const expr = exprs.length == 1 ? exprs[0] : new Alt(exprs);
       if (curr_name === null)
         throw new Error(`PATTERN section with no name`);
-      const prev = patterns[curr_name];
+      const prev = patterns.get(curr_name);
+      if (prev === undefined)
+        throw new Error(`Undefined pattern ${curr_name}`);
       if (prev instanceof Seq && prev.parts.length == 0)
-        patterns[curr_name] = expr;
+        patterns.set(curr_name, expr);
       else {
         if (prev instanceof Alt)
-          patterns[curr_name] = new Alt(prev.alts.concat([expr]));
+          patterns.set(curr_name, new Alt(prev.alts.concat([expr])));
         else
-          patterns[curr_name] = new Alt([prev, expr])
+          patterns.set(curr_name, new Alt([prev, expr]));
       }
       continue;
     }
@@ -1386,7 +1375,9 @@ function parse_lexd(lexdstring: string): ParsedLexd {
       const [base, tags] = _split_tags(line);
       if (curr_name === null)
         throw new Error(`LEXICON section with no name`);
-      const lex = lexicons[curr_name];
+      const lex = lexicons.get(curr_name);
+      if (lex === undefined)
+        throw new Error(`Undefined lexicon ${curr_name}`);
 
       const merged = new Set(curr_block_default_tags);
       // FIXME: Could probably merge these two loops
@@ -1430,10 +1421,192 @@ function parse_lexd(lexdstring: string): ParsedLexd {
     }
     throw new Error(`Line outside a section: ${line}`);
   }
+
+  return {patterns, top_patterns, lexicons, aliases};
 }
 
 /* ----------------------------------------
  * Lexicon compilation
+ * ----------------------------------------
+ */
+
+function _compile_lexicon_entry_variant(
+  lex: LexiconDef,
+  entry: LexEntry,
+  col: number | null,
+  side: string,
+  strict_quoted: boolean = false
+): FST {
+  let content: string;
+  if (lex.arity === 1) {
+    content = entry.cols.length > 0 ? entry.cols[0] : "";
+  } else {
+    if (col === null) {
+      content = entry.cols.join("");
+    } else {
+      if (!(1 <= col && col <= lex.arity)) {
+        throw new Error(`Column ${col} out of range for ${lex.name}(${lex.arity})`);
+      }
+      content = entry.cols[col - 1];
+    }
+  }
+  content = content.trim();
+
+  if (content.startsWith("/") && content.endsWith("/")) {
+    let regex = content.substring(1, content.length - 1);
+    // Rewrite lexd multichar tokens (<...>, {...}) into PyFoma-quoted multichar symbols,
+    // and fix precedence around a top-level ':' (cross-product binds tighter than concat).
+    regex = _quote_multichar_for_pyfoma_regex(regex);
+    regex = _wrap_top_level_colon_operands(regex);
+    return FST.re(regex);
+  }
+
+  let lexside: string, surfside: string;
+  if (content.includes(":")) {
+    [lexside, surfside] = content.split(":", 2);
+  } else {
+    lexside = surfside = content;
+  }
+  lexside = lexside.trim();
+  surfside = surfside.trim();
+
+  let labels: Label[];
+  if (side === "both") {
+    let L = _tokenize_symbols(lexside, strict_quoted);
+    let R = _tokenize_symbols(surfside, strict_quoted);
+    const n = Math.max(L.length, R.length);
+    L = L.concat(Array(n - L.length).fill(""));
+    R = R.concat(Array(n - R.length).fill(""));
+    labels = L.map((a, i) => _normalize_label([a, R[i]]));
+  } else if (side === "out") {
+    const use = surfside !== "" ? surfside : lexside;
+    labels = _tokenize_symbols(use, strict_quoted).map(s => _normalize_label(["", s]));
+  } else if (side === "in") {
+    labels = _tokenize_symbols(lexside, strict_quoted).map(l => _normalize_label([l, ""]));
+  } else {
+    throw new Error(side);
+  }
+
+  let fst = from_tuples([labels]);
+  try {
+    return fst.determinize().minimizeAsDFA();
+  } catch (e) {
+    return fst.determinize();
+  }
+}
+
+function _compile_lexicon_variant(
+  lex: LexiconDef,
+  col: number | [number, number] | null,
+  side: string,
+  selector: TagSelector,
+  strict_quoted: boolean = false
+): FST {
+  const paths: Label[][] = [];
+  let regex_union: FST | null = null;
+
+  // Support lexd syntax X(i):X(j) where a single lexicon entry is used,
+  // but its (i)th column is placed on the input side and its (j)th column on the output side.
+  // We encode this by compiling a temporary 1-column entry of the form "L:R" and compiling it normally.
+  if (col !== null && typeof col !== "number") {
+    const [col_in, col_out] = col;
+    if (!(1 <= col_in && col_in <= lex.arity) || !(1 <= col_out && col_out <= lex.arity)) {
+      throw new Error(`Column pair ${col} out of range for ${lex.name}(${lex.arity})`);
+    }
+
+    const tmp_lex: LexiconDef = { name: lex.name, arity: 1, entries: [] };
+    const variants: FST[] = [];
+
+    for (const e of lex.entries) {
+      if (!selector.matches(e.tags)) continue;
+      const left = col_in - 1 < e.cols.length ? e.cols[col_in - 1] : "";
+      const right = col_out - 1 < e.cols.length ? e.cols[col_out - 1] : "";
+      const tmp_entry: LexEntry = { cols: [`${left}:${right}`], tags: new Set(e.tags) };
+      variants.push(
+        _compile_lexicon_entry_variant(tmp_lex, tmp_entry, 1, "both", strict_quoted)
+      );
+    }
+
+    const f = variants.length > 0 ? union_all(variants) : new FST();
+    return f.determinize().minimizeAsDFA();
+  }
+
+  for (const e of lex.entries) {
+    if (!selector.matches(e.tags)) continue;
+
+    let content: string;
+    if (lex.arity === 1) {
+      content = e.cols.length > 0 ? e.cols[0] : "";
+    } else {
+      if (col === null) {
+        content = e.cols.join("");
+      } else {
+        if (!(1 <= (col as number) && (col as number) <= lex.arity)) {
+          throw new Error(`Column ${col} out of range for ${lex.name}(${lex.arity})`);
+        }
+        content = e.cols[(col as number) - 1];
+      }
+    }
+    content = content.trim();
+
+    if (content.startsWith("/") && content.endsWith("/")) {
+      const rf = _compile_lexicon_entry_variant(lex, e, col as number | null, side, strict_quoted);
+      regex_union = regex_union === null ? rf : regex_union.union(rf);
+      continue;
+    }
+
+    let lexside: string, surfside: string;
+    if (content.includes(":")) {
+      [lexside, surfside] = content.split(":", 2);
+    } else {
+      lexside = surfside = content;
+    }
+
+    lexside = lexside.trim();
+    surfside = surfside.trim();
+
+    let labels: Label[];
+    if (side === "both") {
+      let L = _tokenize_symbols(lexside, strict_quoted);
+      let R = _tokenize_symbols(surfside, strict_quoted);
+      const n = Math.max(L.length, R.length);
+      L = L.concat(Array(n - L.length).fill(""));
+      R = R.concat(Array(n - R.length).fill(""));
+      labels = L.map((a, i) => _normalize_label([a, R[i]]));
+    } else if (side === "out") {
+      const use = surfside !== "" ? surfside : lexside;
+      labels = _tokenize_symbols(use, strict_quoted).map(s => _normalize_label(["", s]));
+    } else if (side === "in") {
+      labels = _tokenize_symbols(lexside, strict_quoted).map(l => _normalize_label([l, ""]));
+    } else {
+      throw new Error(side);
+    }
+
+    paths.push(labels);
+  }
+
+  let outfst: FST | null = null;
+  if (paths.length > 0) {
+    outfst = from_tuples(paths);
+  }
+  if (regex_union !== null) {
+    outfst = outfst === null ? regex_union : outfst.union(regex_union);
+  }
+
+  if (outfst === null) {
+    return empty_fst();
+  }
+
+  try {
+    return outfst.determinize().minimizeAsDFA();
+  } catch (e) {
+    return outfst.determinize();
+  }
+}
+
+/**
+ * ----------------------------------------
+ * Compilation
  * ----------------------------------------
  */
 
@@ -1450,31 +1623,33 @@ export function compile(grammar: string, strict_quoted: boolean = false): FST {
 
 function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
   function resolve_name(name: string): string {
-    return parsed.aliases[name] || name;
+    return parsed.aliases.get(name) ?? name;
   }
 
   let anon_counter = 0;
-  const anon_map: Record<string, string> = {};
-  const lex_cache: Record<string, FST> = {};
-  const pat_cache: Record<string, FST> = {};
+  const anon_map = new Map<string, string>();
+  const lex_cache = new Map<string, FST>();
+  const pat_cache = new Map<string, FST>();
 
   function compile_tok(tok: TokRef): FST {
+    let name: string | undefined;
     if (tok.kind === "anonlex") {
       const raw = tok.name.split(":", 2)[1];
-      if (!(tok.name in anon_map)) {
+      name = anon_map.get(tok.name);
+      if (name === undefined) {
         anon_counter++;
         const anon_name = `__anonlex_${anon_counter}`;
         const [base, tags] = _split_tags(raw);
-        parsed.lexicons[anon_name] = {
+        parsed.lexicons.set(anon_name, {
           name: anon_name,
           arity: 1,
           entries: [{ cols: [base], tags: new Set(tags) }]
-        };
-        anon_map[tok.name] = anon_name;
+        });
+        anon_map.set(tok.name, anon_name);
+        name = anon_name;
       }
-      tok.name = anon_map[tok.name];
     }
-    const name = tok.name;
+    else name = tok.name;
 
     // Cross-lexicon paired reference: x(i):y(j)
     // Handled in compile_seq_aligned so we can bind the paired row index across multiple occurrences.
@@ -1483,18 +1658,21 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
 
     if (name in parsed.patterns && !(resolve_name(name) in parsed.lexicons)) {
       const key = JSON.stringify([name, tok.selector.clauses]);
-      if (key in pat_cache) {
-        return pat_cache[key];
-      }
-      let expr = parsed.patterns[name];
+      const pattern = pat_cache.get(key);
+      if (pattern !== undefined)
+        return pattern;
+      let expr = parsed.patterns.get(name);
+      if (expr === undefined)
+        throw new Error(`Undefined pattern ${name}`);
       expr = _apply_selector_distribution(expr, tok.selector);
       const f = compile_expr(expr, {});
-      pat_cache[key] = f;
+      pat_cache.set(key, f);
       return f;
     }
 
     const base = resolve_name(name);
-    if (!(base in parsed.lexicons)) {
+    const base_lex = parsed.lexicons.get(base);
+    if (base_lex === undefined) {
       // Internal: some anon-pattern expansions use a __POSTSEL__: prefix for temporary atoms.
       // Treat these as anonymous literal patterns (identity transducer).
       // See test-anonpat-modifier for the type of pattern where this is needed
@@ -1509,68 +1687,81 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
     }
 
     const cache_key = JSON.stringify([base, tok.col, tok.side, tok.selector.clauses]);
-    if (cache_key in lex_cache) {
-      return lex_cache[cache_key];
-    }
+    const lex = lex_cache.get(cache_key);
+    if (lex !== undefined)
+      return lex;
 
     const f = _compile_lexicon_variant(
-      parsed.lexicons[base], tok.col, tok.side, tok.selector, strict_quoted
+      base_lex, tok.col ?? null, tok.side, tok.selector, strict_quoted
     );
-    lex_cache[cache_key] = f;
+    lex_cache.set(cache_key, f);
     return f;
   }
 
-  function should_bind(lexdef: LexiconDef, tok: TokRef, env: Record<string, number>, base: string): boolean {
-    const force = env["__FORCE_BIND__"] || new Set();
+  function should_bind(lexdef: LexiconDef, tok: TokRef, force: Set<string>): boolean {
+    // Bind if:
+    //  - explicitly column-referenced (tok.col set), OR
+    //  - this lexicon repeats in the current sequence scope (__FORCE_BIND__), OR
+    //  - one-sided binding is in effect (tok.side != 'both')
     if (force.has(tok.name)) return true;
-    if (tok.col !== undefined) return true;
+    if (tok.col !== null) return true;
     if (tok.side !== "both") return true;
+    // multi-column lexicons are bound by construction
     return lexdef.arity > 1;
   }
 
-  function compile_seq_aligned(parts: PatExpr[], env: Record<string, number>): FST {
-    if (!env["__FORCE_BIND__"]) {
-      const counts: Record<string, number> = {};
+  function compile_seq_aligned(parts: PatExpr[], env: Map<string, number>, force: Set<string> | null): FST {
+    // Binding: if a lexicon name appears multiple times in the *current* sequence scope,
+    // its choice must be coherent across those occurrences.
+    if (force === null) {
+      const counts = new Map<string, number>();
       for (const e of parts) {
-        if ("token" in e && e.token.kind === "lex") {
+        if (e instanceof Ref) {
           const t = e.token;
-          counts[t.name] = (counts[t.name] || 0) + 1;
-        } else if ("token" in e && e.token.kind === "pair" && e.token.left && e.token.right) {
-          const t = e.token;
-          const key = JSON.stringify(["pair", t.left, t.right]);
-          counts[key] = (counts[key] || 0) + 1;
+          let key: string | null = null;
+          if (t.kind === "lex")
+            key = t.name;
+          else if (t.kind === "pair" && t.left && t.right)
+            // This is never checked, but use the same key anyway
+            key = "__PAIR__:" + t.left + ":" + t.right;
+          if (key !== null) {
+            const count = counts.get(key) ?? 0;
+            counts.set(key, count + 1);
+          }
         }
       }
-      env["__FORCE_BIND__"] = Object.keys(counts)
-        .filter(k => counts[k] > 1)
-        .reduce((set, k) => {
-          set.add(k);
-          return set;
-        }, new Set<string>());
+      force = new Set<string>;
+      for (const [k, c] of counts) {
+        if (c > 1)
+          force.add(k);
+      }
     }
 
-    if (parts.length === 0) {
+    if (parts.length === 0)
       return epsilon_fst();
-    }
 
     const [head, ...tail] = parts;
 
-    if ("token" in head) {
+    if (head instanceof Ref) {
       const tok = head.token;
       if (tok.kind === "lex" || tok.kind === "anonlex") {
+        // FIXME: Are we sure it can't ever be a pair here?
+        if (tok.col instanceof Array)
+          throw new Error(`Found pair of columns where there should not be: ${tok}`);
         const base = resolve_name(tok.name);
-        if (base in parsed.lexicons) {
-          const lexdef = parsed.lexicons[base];
-          if (should_bind(lexdef, tok, env, base)) {
-            if (base in env) {
-              const entry = lexdef.entries[env[base]];
+        const lexdef = parsed.lexicons.get(base);
+        if (lexdef !== undefined) {
+          if (should_bind(lexdef, tok, force)) {
+            const idx = env.get(base);
+            if (idx !== undefined) {
+              const entry = lexdef.entries[idx];
               if (!tok.selector.matches(entry.tags)) {
                 return empty_fst();
               }
               const fst_head = _compile_lexicon_entry_variant(
                 lexdef, entry, tok.col, tok.side, strict_quoted
               );
-              return fst_head.concatenate(compile_seq_aligned(tail, env));
+              return fst_head.concatenate(compile_seq_aligned(tail, env, force));
             }
 
             let out: FST | null = null;
@@ -1582,9 +1773,9 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
               const fst_head = _compile_lexicon_entry_variant(
                 lexdef, entry, tok.col, tok.side, strict_quoted
               );
-              const env2 = { ...env };
-              env2[base] = idx;
-              const path = fst_head.concatenate(compile_seq_aligned(tail, env2));
+              const env2 = new Map(env);
+              env2.set(base, idx);
+              const path = fst_head.concatenate(compile_seq_aligned(tail, env2, force));
               out = out ? out.union(path) : path;
             }
             return out || empty_fst();
@@ -1593,20 +1784,23 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
       }
     }
 
-    if ("token" in head && head.token.kind === "pair") {
+    // Special: paired token x(i):y(j) binds a row index across occurrences.
+    if (head instanceof Ref && head.token.kind === "pair") {
       const tok = head.token;
+      if (!(tok.col instanceof Array))
+        throw new Error(`Found single columns where there should be a pair: ${tok}`);
       if (!tok.left || !tok.right) {
         throw new Error(`Malformed pair token: ${JSON.stringify(tok)}`);
       }
       const lx = resolve_name(tok.left);
       const ly = resolve_name(tok.right);
-      const lex_x = parsed.lexicons[lx];
-      const lex_y = parsed.lexicons[ly];
-      if (!lex_x || !lex_y) {
+      const lex_x = parsed.lexicons.get(lx);
+      const lex_y = parsed.lexicons.get(ly);
+      if (lex_x === undefined || lex_y === undefined) {
         throw new Error(`Unknown lexicon in pair: ${tok.left}:${tok.right}`);
       }
 
-      const [ci, co] = Array.isArray(tok.col) ? tok.col : [tok.col, tok.col];
+      const [ci, co] = tok.col;
       if (typeof ci !== 'number' || typeof co !== 'number') {
         throw new Error(`Bad pair columns in ${JSON.stringify(tok)}`);
       }
@@ -1617,29 +1811,30 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
       }
 
       const pair_key = "__PAIR__:" + tok.left + ":" + tok.right;
-      if (pair_key in env) {
-        const k = env[pair_key];
+      // If already bound, compile only that paired row.
+      const k = env.get(pair_key);
+      if (k !== undefined) {
         const ex = lex_x.entries[k];
         const ey = lex_y.entries[k];
         const tag_union = new Set([...ex.tags, ...ey.tags]);
-        if (tok.selector && !tok.selector.matches(tag_union)) {
+        if (tok.selector && !tok.selector.matches(tag_union))
           return empty_fst();
-        }
         const left_str = ex.cols[ci - 1] || "";
         const right_str = ey.cols[co - 1] || "";
         const left_syms = _tokenize_symbols(left_str, strict_quoted);
         const right_syms = _tokenize_symbols(right_str, strict_quoted);
         const L = Math.max(left_syms.length, right_syms.length);
-        const labels: [string, string][] = [];
+        const labels: Label[] = [];
         for (let i = 0; i < L; i++) {
           const a = i < left_syms.length ? left_syms[i] : "";
           const b = i < right_syms.length ? right_syms[i] : "";
           labels.push([a, b]);
         }
         const fst_head = from_tuples([labels]);
-        return fst_head.concatenate(compile_seq_aligned(tail, env));
+        return fst_head.concatenate(compile_seq_aligned(tail, env, force));
       }
 
+      // Otherwise, branch over paired rows (zip semantics).
       let out: FST | null = null;
       const max_k = Math.min(lex_x.entries.length, lex_y.entries.length);
       for (let k = 0; k < max_k; k++) {
@@ -1654,61 +1849,56 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
         const left_syms = _tokenize_symbols(left_str, strict_quoted);
         const right_syms = _tokenize_symbols(right_str, strict_quoted);
         const L = Math.max(left_syms.length, right_syms.length);
-        const labels: [string, string][] = [];
+        const labels: Label[] = [];
         for (let i = 0; i < L; i++) {
           const a = i < left_syms.length ? left_syms[i] : "";
           const b = i < right_syms.length ? right_syms[i] : "";
           labels.push([a, b]);
         }
         const fst_head = from_tuples([labels]);
-        const env2 = { ...env };
-        env2[pair_key] = k;
-        const path = fst_head.concatenate(compile_seq_aligned(tail, env2));
+        const env2 = new Map(env);
+        env2.set(pair_key, k);
+        const path = fst_head.concatenate(compile_seq_aligned(tail, env2, force));
         out = out ? out.union(path) : path;
       }
 
       return out || empty_fst();
     }
 
-    const fst_head = compile_expr(head, env);
-    return fst_head.concatenate(compile_seq_aligned(tail, env));
+    const fst_head = compile_expr(head, env, force);
+    return fst_head.concatenate(compile_seq_aligned(tail, env, force));
   }
 
-  function compile_expr(expr: PatExpr, env: Record<string, number>): FST {
-    if ("token" in expr) {
+  function compile_expr(expr: PatExpr, env: Map<string, number>, force: Set<string> | null): FST {
+    if (expr instanceof Ref)
       return compile_tok(expr.token);
-    }
 
-    if ("parts" in expr) {
-      return compile_seq_aligned(expr.parts, env);
-    }
+    if (expr instanceof Seq)
+      return compile_seq_aligned(expr.parts, env, force);
 
-    if ("alts" in expr) {
+    if (expr instanceof Alt) {
       let out: FST | null = null;
       for (const a of expr.alts) {
-        const af = compile_expr(a, { ...env });
+        const af = compile_expr(a, new Map(env), force ? new Set(force) : null);
         out = out ? out.union(af) : af;
       }
       return out || empty_fst();
     }
 
-    if ("expr" in expr && "q" in expr) {
-      const base = compile_expr(expr.expr, {});
-      if (expr.q === "?") {
+    if (expr instanceof Quant) {
+      const base = compile_expr(expr.expr, new Map(), null);
+      if (expr.q === "?")
         return epsilon_fst().union(base);
-      }
-      if (expr.q === "*") {
+      if (expr.q === "*")
         return kleene_star(base);
-      }
-      if (expr.q === "+") {
+      if (expr.q === "+")
         return kleene_plus(base);
-      }
       throw new Error(`Unknown quantifier: ${expr.q}`);
     }
 
-    if ("expr" in expr && "selector" in expr) {
+    if (expr instanceof Tagged) {
       const distributed = _apply_selector_distribution(expr.expr, expr.selector);
-      return compile_expr(distributed, env);
+      return compile_expr(distributed, env, force);
     }
 
     throw new Error(`Unhandled node: ${JSON.stringify(expr)}`);
@@ -1716,7 +1906,7 @@ function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false): FST {
 
   let outfst: FST | null = null;
   for (const expr of parsed.top_patterns) {
-    const f = compile_expr(expr, {});
+    const f = compile_expr(expr, new Map(), null);
     outfst = outfst ? outfst.union(f) : f;
   }
 
