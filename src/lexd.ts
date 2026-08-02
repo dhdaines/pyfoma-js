@@ -905,7 +905,10 @@ function _parse_token_ref(tok: string): TokRef {
   // Special lexd syntax: X(1):X(2) binds the same lexicon entry while using different columns
   // on the input/output side. (This is NOT the regex cross-product operator.)
   if (tok.includes(":")) {
-    const [left, right] = tok.split(":", 2);
+    // Beware! JavaScript split is defective unlike Python
+    const idx = tok.indexOf(":");
+    const left = tok.substring(0, idx);
+    const right = tok.substring(idx + 1);
     const m1 = left.match(/^(.+?)\((\d+)\)$/);
     const m2 = right.match(/^(.+?)\((\d+)\)$/);
     if (m1 && m2 && m1[1] === m2[1]) {
@@ -1334,7 +1337,9 @@ export function parse_lexd(lexdstring: string): ParsedLexd {
       }
       if (head === "LEXICON") {
         mode = "LEXICON";
-        const rest_raw = line.split(/\s+/, 2)[1];
+        // Beware! JavaScript split is defective unlike Python
+        const idx = line.search(/\s+/);
+        const rest_raw = line.substring(idx).trimStart();
 
         // Lexicon definition tags may appear as:
         //   LEXICON A[x]
@@ -1492,7 +1497,10 @@ function _compile_lexicon_entry_variant(
 
   let lexside: string, surfside: string;
   if (content.includes(":")) {
-    [lexside, surfside] = content.split(":", 2);
+    // Beware! JavaScript split is defective unlike Python
+    const idx = content.indexOf(":");
+    lexside = content.substring(0, idx);
+    surfside = content.substring(idx + 1);
   } else {
     lexside = surfside = content;
   }
@@ -1586,7 +1594,10 @@ function _compile_lexicon_variant(
 
     let lexside: string, surfside: string;
     if (content.includes(":")) {
-      [lexside, surfside] = content.split(":", 2);
+      // Beware! JavaScript split is defective unlike Python
+      const idx = content.indexOf(":");
+      lexside = content.substring(0, idx);
+      surfside = content.substring(idx + 1);
     } else {
       lexside = surfside = content;
     }
@@ -1663,7 +1674,9 @@ export function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false)
   function compile_tok(tok: TokRef): FST {
     let name: string | undefined;
     if (tok.kind === "anonlex") {
-      const raw = tok.name.split(":", 2)[1];
+      // Beware! JavaScript split is defective unlike Python
+      const idx = tok.name.indexOf(":");
+      const raw = tok.name.substring(idx + 1);
       name = anon_map.get(tok.name);
       if (name === undefined) {
         anon_counter++;
