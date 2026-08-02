@@ -90,7 +90,7 @@ function union_all(fsts: FST[]): FST {
   let out: FST | null = null;
   for (const f of fsts) {
     if (out === null)
-      out = f;
+      out = f.copyMod();
     else
       out = out.union(f);
   }
