@@ -1,6 +1,7 @@
 // -*- js-indent-level: 2 -*-
 import { describe, expect, test } from 'vitest';
 import { compile, compile_lexd, parse_lexd  } from "./lexd.js";
+// import type { InspectOptions } from 'util';
 
 describe("Test lexd compiler", () => {
     test("parse a basic grammar", () => {
@@ -1136,7 +1137,15 @@ cat[nofruit,nocolor]
 
 function run_pair_test(test: PairTest): boolean {
   const parsed = parse_lexd(test.grammar);
+  // const opts: InspectOptions = {showHidden: true, depth: 10};
+  // console.dir(parsed, opts);
   const fst = compile_lexd(parsed);
+  /*
+  console.log(fst.toATT());
+  for (const [_, pairs] of fst.words()) {
+    console.log(pairs);
+    }
+  */
 
   if (test.forbidden_alphabet_symbols) {
     const bad = new Set([...test.forbidden_alphabet_symbols].filter(x => fst.alphabet.has(x)));
