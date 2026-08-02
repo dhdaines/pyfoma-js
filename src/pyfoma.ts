@@ -14,13 +14,13 @@
 // ------------------------
 
 const LABEL_SEP = "\u0001";
-type labelArray = string[];
+export type Label = string[];
 
-export function labelKey(lbl: labelArray): string {
+export function labelKey(lbl: Label): string {
   return lbl.join(LABEL_SEP);
 }
 
-export function keyToLabel(k: string): labelArray {
+export function keyToLabel(k: string): Label {
   return k === "" ? [""] : k.split(LABEL_SEP);
 }
 
@@ -102,9 +102,9 @@ function floatInf(): number { return Number.POSITIVE_INFINITY; }
 
 export class Transition {
   targetstate: State;
-  label: labelArray;
+  label: Label;
   weight: number;
-  constructor(targetstate: State, label: labelArray, weight: number) {
+  constructor(targetstate: State, label: Label, weight: number) {
     this.targetstate = targetstate;
     this.label = label;
     this.weight = weight;
@@ -112,9 +112,9 @@ export class Transition {
 }
 
 export class State {
-  transitions: Map<string, {label: labelArray, set: Set<Transition>}>;
-  _transitionsin: Map<string, Set<[labelArray, Transition]>> | null;
-  _transitionsout: Map<string, Set<[labelArray, Transition]>> | null;
+  transitions: Map<string, {label: Label, set: Set<Transition>}>;
+  _transitionsin: Map<string, Set<[Label, Transition]>> | null;
+  _transitionsout: Map<string, Set<[Label, Transition]>> | null;
   finalweight: number;
   name: string | null;
   _id?: number;
@@ -161,7 +161,7 @@ export class State {
     return m;
   }
 
-  renameLabel(originalLabel: labelArray, newLabel: labelArray): void {
+  renameLabel(originalLabel: Label, newLabel: Label): void {
     const ok = labelKey(originalLabel);
     const entry = this.transitions.get(ok);
     if (!entry) return;
@@ -193,7 +193,7 @@ export class State {
     this._invalidateIndexes();
   }
 
-  addTransition(other: State, label: labelArray, weight: number): void {
+  addTransition(other: State, label: Label, weight: number): void {
     const k = labelKey(label);
     if (!this.transitions.has(k)) this.transitions.set(k, { label, set: new Set() });
     const entry = this.transitions.get(k)!;
@@ -211,7 +211,7 @@ export class State {
     this._invalidateIndexes();
   }
 
-  *allTransitions(): Generator<[labelArray, Transition]> {
+  *allTransitions(): Generator<[Label, Transition]> {
     for (const { label, set } of this.transitions.values()) {
       for (const t of set) yield [label, t];
     }
@@ -303,8 +303,8 @@ type FunctionSet = Set<Function | FunctionObject>;
 type FinalFFunction = (x: [boolean, boolean]) => boolean;
 type OPlusFunction = (x: number, y: number) => number;
 type PathFollowFunction = (x: Set<string>, y: Set<string>) => Set<string>;
-type ModLabelFunction = (lbl: labelArray, w: number) => labelArray;
-type ModWeightFunction = (lbl: labelArray, w: number) => number;
+type ModLabelFunction = (lbl: Label, w: number) => Label;
+type ModWeightFunction = (lbl: Label, w: number) => number;
 type StateRepFunction = (s: State, w: number) => [State, number];
 
 export class RegexParse {
@@ -927,7 +927,7 @@ export class FST {
     return FST.regex(regExp, defined, functions);
   }
 
-  static fromLabel(label: labelArray, weight = 0.0) {
+  static fromLabel(label: Label, weight = 0.0) {
     const fst = new FST();
     // Label is array of strings; epsilon if [""]
     // FIXME: That's not the same definition used elsewhere
@@ -946,7 +946,7 @@ export class FST {
   }
 
   constructor({label, weight = 0.0, alphabet}:
-              { label?: string | labelArray, weight?: number, alphabet?: Set<string> } = {}) {
+              { label?: string | Label, weight?: number, alphabet?: Set<string> } = {}) {
     this.alphabet = alphabet ? new Set(alphabet) : new Set();
     this.initialstate = new State();
     this.states = new Set([this.initialstate]);
@@ -1135,7 +1135,7 @@ export class FST {
     const weightstr = ['##weights##'];
     let linecount_ = 1; // foma expects 1 + number of lines in ##states## section (excluding sentinel)
 
-    const mapLabelForFoma = (label: labelArray) => {
+    const mapLabelForFoma = (label: Label) => {
       let out = label.slice();
       if (out.includes('.')) {
         if (out.length === 1) {
@@ -1225,7 +1225,7 @@ export class FST {
       if (s === "-0") s = "0";
       return "/" + s;
     };
-    const fmtLabel = (lbl: labelArray) => lbl.map((x) => (x === "" ? "ε" : x)).join(":");
+    const fmtLabel = (lbl: Label) => lbl.map((x) => (x === "" ? "ε" : x)).join(":");
 
     const statenums = this.numberUnnamedStates();
     const sigma = showAlphabet ? `Σ: {${Array.from(this.alphabet).sort().join(",")}}` : "";
@@ -1259,7 +1259,7 @@ export class FST {
         grouped.get(t.targetstate).push([label, t.weight]);
       }
       for (const [target, arr] of grouped.entries()) {
-        const labellist = arr.map(([lbl, w]: [labelArray, number]) => {
+        const labellist = arr.map(([lbl, w]: [Label, number]) => {
           if (raw) return `${JSON.stringify(lbl)}/${w}`;
           return `${fmtLabel(lbl)}${floatFormat(w)}`;
         }).sort();
@@ -1331,7 +1331,7 @@ export class FST {
   // Graph algorithms
   // ------------------------
 
-  *allTransitions(states: Set<State>): Generator<[State, labelArray, Transition]> {
+  *allTransitions(states: Set<State>): Generator<[State, Label, Transition]> {
     for (const s of states) {
       for (const [label, t] of s.allTransitions()) {
         yield [s, label, t];
@@ -1758,7 +1758,7 @@ export class FST {
   }
 
   project(dim = 0): FST {
-    const sl = (dim === -1) ? (lbl: labelArray) => [lbl[lbl.length - 1]] : (lbl: labelArray) => [lbl[dim]];
+    const sl = (dim === -1) ? (lbl: Label) => [lbl[lbl.length - 1]] : (lbl: Label) => [lbl[dim]];
     const newAlphabet = new Set<string>();
     const newfst = this.copyMod();
     for (const s of newfst.states) {
@@ -1830,12 +1830,12 @@ export class FST {
 
     // Pad self with an empty output tape, pad other with an empty input tape, then compose.
     const a = this.copyMod({
-      modLabel: (lbl: labelArray, _w: number) => lbl.concat([""]),
-      modWeight: (_lbl: labelArray, w: number) => w,
+      modLabel: (lbl: Label, _w: number) => lbl.concat([""]),
+      modWeight: (_lbl: Label, w: number) => w,
     });
     const b = other.copyMod({
-      modLabel: (lbl: labelArray, _w: number) => [""].concat(lbl),
-      modWeight: (_lbl: labelArray, w: number) => w,
+      modLabel: (lbl: Label, _w: number) => [""].concat(lbl),
+      modWeight: (_lbl: Label, w: number) => w,
     });
 
     const composed = a.compose(b);
@@ -1850,8 +1850,8 @@ export class FST {
 
     // Composition with epsilon filtering (ported from pyfoma.py).
     // Supports k-tape labels represented as arrays.
-    const mergeTuples = (x: labelArray, y: labelArray) => {
-      let t: labelArray;
+    const mergeTuples = (x: Label, y: Label) => {
+      let t: Label;
       if (x.length === 1) {
         // expand acceptor x into 2-tape-on-the-fly
         t = x.concat(y.slice(1));
@@ -2428,9 +2428,9 @@ export class FST {
     return m;
   }
 
-  *wordsCheapest(): Generator<[number, labelArray[]]> {
+  *wordsCheapest(): Generator<[number, Label[]]> {
     const cntr = new Counter();
-    const heap = new MinHeap<[number, State | null, labelArray[]]>();
+    const heap = new MinHeap<[number, State | null, Label[]]>();
     heap.push([0.0, [cntr.next(), this.initialstate, []]]);
     while (heap.size) {
       const [cost, payload] = heap.pop()!;
@@ -2479,7 +2479,7 @@ export class FST {
       if (!Aexpand.size) return;
 
       // Snapshot the transitions to expand so we don't mutate while iterating.
-      const toExpand: [State, labelArray, Transition][] = [];
+      const toExpand: [State, Label, Transition][] = [];
       for (const s of A.states) {
         for (const { label, set } of s.transitions.values()) {
           if (!label.includes('.')) continue;

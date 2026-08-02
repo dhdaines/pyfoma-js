@@ -1,2 +1,3 @@
 import { FST, State, Transition, re, regex } from "./pyfoma.js";
-export { FST, State, Transition, re, regex };
+import { compile as lexd_compile } from "./lexd.js";
+export { FST, State, Transition, re, regex, lexd_compile };
