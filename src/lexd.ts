@@ -1784,13 +1784,12 @@ export function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false)
             const idx = env.get(base);
             if (idx !== undefined) {
               const entry = lexdef.entries[idx];
-              if (!tok.selector.matches(entry.tags)) {
+              if (!tok.selector.matches(entry.tags))
                 return empty_fst();
-              }
               const fst_head = _compile_lexicon_entry_variant(
                 lexdef, entry, tok.col, tok.side, strict_quoted
               );
-              return fst_head.concatenate(compile_seq_aligned(tail, env, force));
+              return fst_head.copyMod().concatenate(compile_seq_aligned(tail, env, force));
             }
 
             let out: FST | null = null;
@@ -1804,7 +1803,7 @@ export function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false)
               );
               const env2 = new Map(env);
               env2.set(base, idx);
-              const path = fst_head.concatenate(compile_seq_aligned(tail, env2, force));
+              const path = fst_head.copyMod().concatenate(compile_seq_aligned(tail, env2, force));
               out = out ? out.union(path) : path;
             }
             return out || empty_fst();
@@ -1860,7 +1859,7 @@ export function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false)
           labels.push([a, b]);
         }
         const fst_head = from_tuples([labels]);
-        return fst_head.concatenate(compile_seq_aligned(tail, env, force));
+        return fst_head.copyMod().concatenate(compile_seq_aligned(tail, env, force));
       }
 
       // Otherwise, branch over paired rows (zip semantics).
@@ -1887,7 +1886,7 @@ export function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false)
         const fst_head = from_tuples([labels]);
         const env2 = new Map(env);
         env2.set(pair_key, k);
-        const path = fst_head.concatenate(compile_seq_aligned(tail, env2, force));
+        const path = fst_head.copyMod().concatenate(compile_seq_aligned(tail, env2, force));
         out = out ? out.union(path) : path;
       }
 
@@ -1895,7 +1894,7 @@ export function compile_lexd(parsed: ParsedLexd, strict_quoted: boolean = false)
     }
 
     const fst_head = compile_expr(head, env, force);
-    return fst_head.concatenate(compile_seq_aligned(tail, env, force));
+    return fst_head.copyMod().concatenate(compile_seq_aligned(tail, env, force));
   }
 
   function compile_expr(expr: PatExpr, env: Map<string, number>, force: Set<string> | null): FST {
