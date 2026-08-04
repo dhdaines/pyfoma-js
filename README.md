@@ -29,7 +29,7 @@ in your code, for example:
 ```
 
 Of course, you can put it anywhere you like, or also use something
-like [vite](https://vite.dev) to bundle it with your own JavaScript
+like [Vite](https://vite.dev) to bundle it with your own JavaScript
 code, which has the advantage of only including functions and methods
 you actually use (the kids call this "tree-shaking").
 
@@ -37,6 +37,17 @@ If you need to directly support older browsers then you'll have to use
 [Babel](https://babeljs.io/docs/usage) or whatever the latest trendy
 tool is, perhaps [SWC](https://swc.rs/) or
 [Oxc](https://oxc.rs/docs/guide/usage/transformer/lowering.html).
+
+## Demo site
+
+The original demo site code from https://fomafst.github.io/pyfomajs/
+is included here as an example of using `pyfoma-js` in a web
+application.  To run it locally, run:
+
+```
+npm install
+npm run demo
+```
 
 ## API
 
@@ -50,5 +61,5 @@ formalism](https://github.com/mhulden/pyfoma/blob/main/docs/examples/lexd-intro.
 is, and you will probably be happier using that anyway.
 
 See the [reference
-documentation](https://dhdaines.github.io/pyfoma-js) for more
+documentation](https://dhdaines.github.io/pyfoma-js/doc) for more
 information.

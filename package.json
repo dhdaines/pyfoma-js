@@ -15,7 +15,10 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo": "vite",
+    "build-demo": "vite build",
+    "build-docs": "typedoc"
   },
   "repository": {
     "type": "git",
@@ -33,10 +36,12 @@
   "homepage": "https://github.com/dhdaines/pyfoma-js#readme",
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "@viz-js/viz": "^3.28.0",
     "publint": "^0.3.22",
     "tsdown": "^0.22.14",
     "typedoc": "^0.28.20",
     "typescript": "^6.0.3",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10"
   }
 }

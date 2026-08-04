@@ -39,13 +39,14 @@ jobs:
       - name: Build docs
         run: |
             npm install
-            npx typedoc src/index.ts
+            npm run build-demo
+            npm run build-docs
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
