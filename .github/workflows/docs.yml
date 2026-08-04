@@ -33,8 +33,13 @@ jobs:
         uses: actions/checkout@v6
       - name: Setup Node
         uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
       - name: Build docs
-        run: npx typedoc src/index.ts
+        run: |
+            npm install
+            npx typedoc src/index.ts
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
