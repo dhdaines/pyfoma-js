@@ -1,6 +1,6 @@
 // -*- js-indent-level: 2 -*-
-/**
- * Lexd → PyFoma compiler
+/*
+Lexd → PyFoma compiler
 
 A JavaScript implementation of the Lexd formalism (inspired by Apertium's C++ lexd),
 allowing compilation of Lexd grammars into finite-state transducers (FSTs)
@@ -1653,9 +1653,11 @@ function _compile_lexicon_variant(
 /**
  * Compile a lexd grammar and return a pyfoma FST.
  *
- * strict_quoted controls single-quote behavior in plain lexicon entries:
+ * @param grammar The full Lexd source code as a string.
+ * @param strict_quoted controls single-quote behavior in plain lexicon entries:
  *   - False (default): unmatched single quote is treated as a literal symbol
  *   - True: unmatched single quote raises ValueError
+ * @return the compiled transducer.
  */
 export function compile(grammar: string, strict_quoted: boolean = false): FST {
   return compile_lexd(parse_lexd(grammar), strict_quoted);

@@ -1177,7 +1177,7 @@ function run_pair_test(test: PairTest): boolean {
   const missingLines: string[] = [];
   const extraLines: string[] = [];
   for (const [inp, expOuts] of Object.entries(expectedMap)) {
-    const gotOuts = new Set(fst.apply(inp));
+    const gotOuts = new Set(Array.from(fst.apply(inp)).map(x => x instanceof Array ? x[0]: x));
     const missing = new Set([...expOuts].filter(x => !gotOuts.has(x)));
     const extra = new Set([...gotOuts].filter(x => !expOuts.has(x)));
     for (const m of missing) {
